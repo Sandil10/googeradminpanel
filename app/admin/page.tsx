@@ -32,11 +32,11 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold text-white">Dashboard Overview</h1>
-        <p className="text-slate-400 mt-2">Welcome back, Admin. Here's what's happening today.</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Dashboard Overview</h1>
+        <p className="text-slate-400 mt-1 md:mt-2 text-sm">Welcome back, Admin. Here's what's happening today.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         {stats.map((stat) => (
           <div key={stat.name} className="bg-[#09090b] border border-[#1a1a1a] rounded-2xl p-6 hover:border-white/20 transition-all group">
             <div className={`w-12 h-12 rounded-xl ${stat.bg} ${stat.color} flex items-center justify-center text-2xl mb-4`}>
@@ -53,9 +53,9 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-[#09090b] border border-[#1a1a1a] rounded-2xl p-8">
-          <div className="flex justify-between items-center mb-8">
-            <h3 className="text-xl font-bold text-white">Platform Activity</h3>
+        <div className="lg:col-span-2 bg-[#09090b] border border-[#1a1a1a] rounded-2xl p-4 md:p-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+            <h3 className="text-lg md:text-xl font-bold text-white">Platform Activity</h3>
             <select className="bg-black border border-[#1a1a1a] rounded-lg px-3 py-1.5 text-xs text-slate-300">
               <option>Last 7 Days</option>
               <option>Last 30 Days</option>
@@ -77,8 +77,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="bg-[#09090b] border border-[#1a1a1a] rounded-2xl p-8">
-          <h3 className="text-xl font-bold text-white mb-6">Recent Requests</h3>
+        <div className="bg-[#09090b] border border-[#1a1a1a] rounded-2xl p-6 md:p-8">
+          <h3 className="text-lg md:text-xl font-bold text-white mb-6">Recent Requests</h3>
           <div className="space-y-6">
             {[
               { name: "Top-up Request", user: "John Doe", amount: "$50.00", time: "2 min ago" },

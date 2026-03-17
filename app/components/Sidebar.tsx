@@ -39,9 +39,11 @@ const menuItems = [
 interface SidebarProps {
     isCollapsed: boolean;
     onToggle: () => void;
+    isMobileOpen?: boolean;
+    onCloseMobile?: () => void;
 }
 
-export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMobile }: SidebarProps) {
     const pathname = usePathname();
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [openMenus, setOpenMenus] = useState<string[]>([]);
@@ -102,30 +104,42 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
     return (
         <aside
-            className={`fixed left-0 top-0 h-screen bg-black text-white flex flex-col border-r border-[#1a1a1a] z-50 transition-all duration-300 ${isCollapsed ? "w-20" : "w-64"
-                }`}
+            className={`fixed left-0 top-0 h-screen bg-black text-white flex flex-col border-r border-[#1a1a1a] z-50 transition-all duration-300 md:translate-x-0 
+                ${isMobileOpen ? "translate-x-0 w-64 shadow-[20px_0_60px_rgba(0,0,0,0.8)]" : "-translate-x-full w-64"} 
+                ${isCollapsed ? "md:w-20" : "md:w-64"}
+            `}
         >
             {/* Brand */}
-            <div className="p-6 relative flex items-center gap-3">
-                <div className="relative w-8 h-8 shrink-0">
-                    <Image 
-                        src="/assets/images/googer.png" 
-                        alt="Logo" 
-                        fill 
-                        className="object-contain"
-                    />
-                </div>
-                {!isCollapsed && (
-                    <div className="flex flex-col">
-                        <h1 className="text-lg font-bold tracking-tight text-white leading-none">Googer</h1>
-                        <span className="text-[10px] text-white font-bold uppercase tracking-widest mt-1">Admin Panel</span>
+            <div className="p-6 relative flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                    <div className="relative w-8 h-8 shrink-0">
+                        <Image 
+                            src="/assets/images/googer.png" 
+                            alt="Logo" 
+                            fill 
+                            className="object-contain"
+                        />
                     </div>
-                )}
+                    {(!isCollapsed || isMobileOpen) && (
+                        <div className="flex flex-col truncate">
+                            <h1 className="text-lg font-bold tracking-tight text-white leading-none">Googer</h1>
+                            <span className="text-[10px] text-white font-bold uppercase tracking-widest mt-1">Admin Panel</span>
+                        </div>
+                    )}
+                </div>
 
-                {/* Collapse Toggle Button */}
+                {/* Mobile Close Button */}
+                <button 
+                    onClick={onCloseMobile}
+                    className="md:hidden p-2 text-slate-400 hover:text-white"
+                >
+                    <IonIcon name="close-outline" className="text-2xl" />
+                </button>
+
+                {/* Collapse Toggle Button (Desktop only) */}
                 <button
                     onClick={onToggle}
-                    className="absolute -right-3 top-7 w-6 h-6 bg-[#1a1a1a] text-white rounded-full flex items-center justify-center border border-[#333] hover:bg-white hover:text-black transition-all z-50"
+                    className="hidden md:flex absolute -right-3 top-7 w-6 h-6 bg-[#1a1a1a] text-white rounded-full items-center justify-center border border-[#333] hover:bg-white hover:text-black transition-all z-50"
                 >
                     <IonIcon name={isCollapsed ? "chevron-forward-outline" : "chevron-back-outline"} className="text-[10px]" />
                 </button>
@@ -145,12 +159,12 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                     <button
                                         onClick={() => toggleMenu(item.name)}
                                         className={`flex items-center gap-4 px-3 py-2.5 rounded-lg transition-all group ${isActive ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5 hover:text-white"
-                                            } ${isCollapsed ? "justify-center" : ""}`}
+                                            } ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
                                     >
                                         <div className="text-xl w-6 flex justify-center shrink-0">
                                             <IonIcon name={(item.icon || "list") + "-outline"} />
                                         </div>
-                                        {!isCollapsed && (
+                                        {(!isCollapsed || isMobileOpen) && (
                                             <>
                                                 <span className="font-medium text-sm flex-1 text-left">{item.name}</span>
                                                 <IonIcon 
@@ -160,7 +174,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                             </>
                                         )}
                                     </button>
-                                    {!isCollapsed && isOpen && (
+                                    {(!isCollapsed || isMobileOpen) && isOpen && (
                                         <div className="mt-1 ml-10 space-y-1 border-l border-[#1a1a1a] pl-4 animate-in slide-in-from-top-1 duration-200">
                                             {item.children?.map(child => (
                                                 <Link
@@ -178,14 +192,15 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             ) : (
                                 <Link
                                     href={item.href || "#"}
+                                    onClick={onCloseMobile}
                                     className={`flex items-center gap-4 px-3 py-2.5 rounded-lg transition-all group ${pathname === item.href ? "bg-white text-black shadow-lg shadow-white/10" : "text-slate-400 hover:bg-white/5 hover:text-white"
-                                        } ${isCollapsed ? "justify-center" : ""}`}
+                                        } ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
                                     title={isCollapsed ? item.name : ""}
                                 >
                                     <div className="text-xl w-6 flex justify-center shrink-0">
                                         <IonIcon name={(item.icon || "list") + "-outline"} />
                                     </div>
-                                    {!isCollapsed && (
+                                    {(!isCollapsed || isMobileOpen) && (
                                         <span className="font-medium text-sm transition-opacity duration-200">{item.name}</span>
                                     )}
                                 </Link>
@@ -287,8 +302,8 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 )}
 
                 <div
-                    className={`flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors ${isCollapsed ? "justify-center" : ""}`}
-                    onClick={() => !isCollapsed && setShowUserMenu(!showUserMenu)}
+                    className={`flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
+                    onClick={() => (!isCollapsed || isMobileOpen) && setShowUserMenu(!showUserMenu)}
                 >
                     <div className="relative w-10 h-10 rounded-full overflow-hidden border border-gray-600 shrink-0 bg-gray-800">
                         {user && profileImage && (
@@ -309,7 +324,7 @@ export default function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                             )
                         )}
                     </div>
-                    {!isCollapsed && (
+                    {(!isCollapsed || isMobileOpen) && (
                         <>
                             <div className="flex-1 min-w-0 transition-opacity duration-200">
                                 <p className="text-sm font-semibold truncate">

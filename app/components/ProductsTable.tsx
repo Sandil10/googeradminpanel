@@ -140,22 +140,22 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-black text-white tracking-tight">{title}</h1>
-                    <p className="text-slate-400 font-medium">{description}</p>
+                    <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">{title}</h1>
+                    <p className="text-slate-400 text-sm font-medium">{description}</p>
                 </div>
             </div>
 
-            <div className="bg-[#09090b] border border-[#1a1a1a] rounded-[2rem] relative min-h-[700px] shadow-2xl overflow-visible">
+            <div className="bg-[#09090b] border border-[#1a1a1a] rounded-[1.5rem] md:rounded-[2rem] relative min-h-[500px] md:min-h-[700px] shadow-2xl overflow-hidden">
                 {loading && (
                     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center rounded-[2rem]">
                         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-white"></div>
                     </div>
                 )}
                 
-                <div className="w-full">
-                    <table className="w-full text-left">
+                <div className="w-full overflow-x-auto custom-scrollbar">
+                    <table className="w-full text-left min-w-[800px]">
                         <thead>
                             <tr className="bg-[#1a1a1a]/50 text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">
                                 <th className="px-6 py-5">Product Details</th>
