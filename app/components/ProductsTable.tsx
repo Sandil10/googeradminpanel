@@ -12,11 +12,17 @@ interface Product {
     username: string; // Seller name
     title: string;
     price: string;
+    promo_price?: string;
     category: string;
+    sub_category?: string;
+    level3_category?: string;
     status: string;
     views: number;
     created_at: string;
     image_url: string;
+    description?: string;
+    stock?: number;
+    seller_id?: string;
 }
 
 interface ProductsTableProps {
@@ -30,9 +36,9 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
     const [loading, setLoading] = useState(true);
     const [activeMenu, setActiveMenu] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [selectedImages, setSelectedImages] = useState<string[] | null>(null);
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
-    const [galleryProductId, setGalleryProductId] = useState<number | null>(null); // New state to store product ID for gallery
+    const [selectedImages, setSelectedImages] = useState<string[]>([]);
 
     const cleanImageUrl = (url: string) => {
         if (!url) return '';
@@ -127,15 +133,11 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
         return images.length > 0 ? images[0] : null;
     };
 
-    const openImageGallery = (productId: number, imageUrl: string) => {
-        if (!imageUrl) return;
-        const images = parseImages(imageUrl);
-        
-        if (images.length > 0) {
-            setSelectedImages(images);
-            setCurrentImageIndex(0);
-            setGalleryProductId(productId); // Store the product ID
-        }
+    const openProductDetails = (product: Product) => {
+        const images = parseImages(product.image_url);
+        setSelectedProduct(product);
+        setSelectedImages(images);
+        setCurrentImageIndex(0);
     };
 
     return (
@@ -157,7 +159,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                 <div className="w-full overflow-x-auto custom-scrollbar">
                     <table className="w-full text-left min-w-[800px]">
                         <thead>
-                            <tr className="bg-[#1a1a1a]/50 text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">
+                            <tr className="bg-[#1a1a1a]/50 text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
                                 <th className="px-6 py-5">Product Details</th>
                                 <th className="px-6 py-5">Seller</th>
                                 <th className="px-6 py-5">Price</th>
@@ -182,7 +184,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                 <div 
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        openImageGallery(product.id, product.image_url);
+                                                        openProductDetails(product);
                                                     }}
                                                     className="w-12 h-12 rounded-2xl bg-black border border-white/5 flex items-center justify-center text-slate-700 text-xl shrink-0 cursor-pointer hover:border-white/20 transition-all overflow-hidden relative group/thumb"
                                                 >
@@ -213,22 +215,22 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                     </div>
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <p className="font-bold text-white group-hover:text-blue-400 transition-colors truncate max-w-[180px]">{product.title}</p>
-                                                    <p className="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-tighter">PID-{product.id}</p>
+                                                    <p className="font-bold text-white group-hover:text-blue-400 transition-colors truncate max-w-[180px] text-xs">{product.title}</p>
+                                                    <p className="text-[9px] text-slate-500 font-mono mt-0.5 uppercase tracking-tighter">PID-{product.id}</p>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col">
-                                                <span className="text-white font-bold text-sm">{product.username || 'Unknown'}</span>
-                                                <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">ID: {product.user_id}</span>
+                                                <span className="text-white font-bold text-xs">{product.username || 'Unknown'}</span>
+                                                <span className="text-[9px] text-slate-500 font-mono uppercase tracking-widest mt-0.5">ID: {product.seller_id || product.user_id}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <div className="text-white font-black text-sm">R {parseFloat(product.price || '0').toLocaleString()}</div>
+                                            <div className="text-white font-black text-xs">R {parseFloat(product.price || '0').toLocaleString()}</div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <span className="px-3 py-1 rounded-full bg-white/5 text-slate-400 text-[10px] font-black uppercase tracking-[0.1em] border border-white/5">
+                                            <span className="px-3 py-1 rounded-full bg-white/5 text-slate-400 text-[9px] font-black uppercase tracking-[0.1em] border border-white/5">
                                                 {product.category || 'Uncategorized'}
                                             </span>
                                         </td>
@@ -319,96 +321,143 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                 </div>
             </div>
 
-            {/* Image Gallery Modal */}
-            {selectedImages && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 md:p-10 animate-in fade-in duration-300">
-                    <button 
-                        onClick={() => setSelectedImages(null)}
-                        className="absolute top-8 right-8 text-white/50 hover:text-white text-4xl transition-colors z-[110]"
-                    >
-                        <IonIcon name="close" />
-                    </button>
+            {/* Product Details Modal */}
+            {selectedProduct && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
+                    <div className="absolute inset-0 bg-black/95" onClick={() => setSelectedProduct(null)}></div>
+                    
+                    <div className="relative w-full max-w-2xl bg-[#0c0c0e] rounded-[2.5rem] overflow-hidden border border-white/10 shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] z-[110] flex flex-col max-h-[90vh]">
+                        {/* Modal Header */}
+                        <div className="p-6 md:p-8 flex justify-between items-center border-b border-white/5">
+                            <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center border border-blue-500/30 overflow-hidden">
+                                    <IonIcon name="person" className="text-blue-400" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Seller Profile</p>
+                                    <p className="text-sm font-bold text-white">{selectedProduct.username}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                                    selectedProduct.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                                    selectedProduct.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                    'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                                }`}>
+                                    {selectedProduct.status}
+                                </span>
+                                <button 
+                                    onClick={() => setSelectedProduct(null)}
+                                    className="p-2 text-slate-500 hover:text-white transition-colors"
+                                >
+                                    <IonIcon name="close" className="text-2xl" />
+                                </button>
+                            </div>
+                        </div>
 
-                    <div className="relative w-full max-w-5xl h-full flex flex-col items-center justify-center gap-8">
-                        <div className="relative w-full aspect-video md:h-[70vh] rounded-3xl overflow-hidden shadow-2xl bg-black/50 border border-white/20">
-                            {(() => {
-                                const currentImg = selectedImages[currentImageIndex];
-                                if (currentImg.startsWith('data:')) {
-                                    return (
-                                        <img
-                                            src={currentImg}
-                                            alt="Gallery image"
-                                            className="w-full h-full object-contain p-2"
-                                        />
-                                    );
-                                }
-                                return (
-                                    <Image
-                                        src={currentImg}
-                                        alt="Gallery image"
-                                        fill
-                                        sizes="(max-width: 768px) 100vw, 1024px"
-                                        className="object-contain p-2"
-                                    />
-                                );
-                            })()}
+                        {/* Modal Content - Scrollable */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 space-y-8">
+                            {/* Product Title & Categories */}
+                            <div className="space-y-4">
+                                <h2 className="text-4xl font-black text-white leading-tight uppercase tracking-tight">{selectedProduct.title}</h2>
+                                <div className="flex flex-wrap gap-2">
+                                    {[selectedProduct.category, selectedProduct.sub_category, selectedProduct.level3_category].filter(Boolean).map((cat, i) => (
+                                        <span key={i} className="px-4 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 text-[10px] font-black uppercase tracking-widest border border-blue-500/20">
+                                            {cat}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
 
-                            {/* View Details Float Button */}
-                            <div className="absolute top-6 right-6 z-10">
-                                {galleryProductId && (
-                                    <Link 
-                                        href={`/admin/products/${galleryProductId}`}
-                                        className="flex items-center gap-2 px-6 py-3 rounded-full bg-white text-black font-black text-[10px] uppercase tracking-widest hover:bg-white/90 transition-all shadow-2xl"
-                                    >
-                                        <IonIcon name="eye-outline" className="text-sm" />
-                                        View Details
-                                    </Link>
+                            {/* Main Image View */}
+                            <div className="relative aspect-video rounded-3xl overflow-hidden bg-black/50 border border-white/10 group/gallery">
+                                {selectedImages.length > 0 ? (
+                                    selectedImages[currentImageIndex].startsWith('data:') ? (
+                                        <img src={selectedImages[currentImageIndex]} alt="" className="w-full h-full object-contain p-4" />
+                                    ) : (
+                                        <Image src={selectedImages[currentImageIndex]} alt="" fill className="object-contain p-4" />
+                                    )
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-700">
+                                        <IonIcon name="image-outline" className="text-6xl" />
+                                    </div>
+                                )}
+
+                                {/* Image Navigation */}
+                                {selectedImages.length > 1 && (
+                                    <>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev > 0 ? prev - 1 : selectedImages.length - 1)) }}
+                                            className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-md text-white border border-white/10 opacity-0 group-hover/gallery:opacity-100 transition-all"
+                                        >
+                                            <IonIcon name="chevron-back" />
+                                        </button>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev < selectedImages.length - 1 ? prev + 1 : 0)) }}
+                                            className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-md text-white border border-white/10 opacity-0 group-hover/gallery:opacity-100 transition-all"
+                                        >
+                                            <IonIcon name="chevron-forward" />
+                                        </button>
+                                    </>
                                 )}
                             </div>
 
-                            {/* Navigation Arrows */}
-                            {selectedImages.length > 1 && (
-                                <>
-                                    <button 
-                                        onClick={() => setCurrentImageIndex(prev => (prev > 0 ? prev - 1 : selectedImages.length - 1))}
-                                        className="absolute left-6 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white flex items-center justify-center text-2xl transition-all border border-white/10"
-                                    >
-                                        <IonIcon name="chevron-back" />
-                                    </button>
-                                    <button 
-                                        onClick={() => setCurrentImageIndex(prev => (prev < selectedImages.length - 1 ? prev + 1 : 0))}
-                                        className="absolute right-6 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white flex items-center justify-center text-2xl transition-all border border-white/10"
-                                    >
-                                        <IonIcon name="chevron-forward" />
-                                    </button>
-                                </>
-                            )}
-                        </div>
-
-                        {/* Thumbnails */}
-                        {selectedImages.length > 1 && (
-                            <div className="flex gap-4 overflow-x-auto pb-4 max-w-full custom-scrollbar text-white">
-                                {selectedImages.map((img, idx) => (
-                                    <div 
-                                        key={idx}
-                                        onClick={() => setCurrentImageIndex(idx)}
-                                        className={`relative w-20 h-20 rounded-xl overflow-hidden cursor-pointer transition-all border-2 shrink-0 ${
-                                            currentImageIndex === idx ? 'border-blue-500 scale-110 shadow-lg' : 'border-transparent opacity-50 hover:opacity-100'
-                                        }`}
-                                    >
-                                        {img.startsWith('data:') ? (
-                                            <img src={img} alt="" className="w-full h-full object-cover" />
-                                        ) : (
-                                            <Image src={img} alt="" fill sizes="80px" className="object-cover" />
+                            {/* Multi-column Stats Card */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-white/[0.03] border border-white/5 rounded-3xl p-6">
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Pricing Details</p>
+                                    <div className="flex items-baseline gap-4">
+                                        <span className="text-3xl font-black text-white">R {parseFloat(selectedProduct.price).toLocaleString()}</span>
+                                        {selectedProduct.promo_price && (
+                                            <>
+                                                <span className="text-lg text-slate-500 line-through">R {parseFloat(selectedProduct.promo_price).toLocaleString()}</span>
+                                                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase">
+                                                    {Math.round((1 - parseFloat(selectedProduct.price) / parseFloat(selectedProduct.promo_price)) * 100)}% OFF
+                                                </span>
+                                            </>
                                         )}
                                     </div>
-                                ))}
+                                </div>
+                                <div className="bg-white/[0.03] border border-white/5 rounded-3xl p-6">
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Stock Availability</p>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-3xl font-black ${selectedProduct.stock && selectedProduct.stock > 0 ? 'text-white' : 'text-rose-500'}`}>
+                                            {selectedProduct.stock || 0} Units
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
-                        )}
-                        
-                        <p className="text-white/50 text-sm font-black uppercase tracking-widest">
-                            Image {currentImageIndex + 1} of {selectedImages.length}
-                        </p>
+
+                            {/* Product Description */}
+                            <div className="space-y-4">
+                                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Product Description</p>
+                                <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/5">
+                                    <p className="text-sm text-slate-400 leading-relaxed font-medium">
+                                        {selectedProduct.description || "No description provided for this item."}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Modal Footer Actions */}
+                        <div className="p-6 md:p-8 border-t border-white/5 flex gap-4">
+                            <button className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-widest py-4 rounded-2xl transition-all flex items-center justify-center gap-3">
+                                <IonIcon name="share-social-outline" className="text-lg" />
+                                Share
+                            </button>
+                            <button className="w-14 h-14 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center justify-center transition-all border border-white/10">
+                                <IonIcon name="create-outline" className="text-xl text-slate-400" />
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    handleAction(selectedProduct.id, 'Delete');
+                                    setSelectedProduct(null);
+                                }}
+                                className="w-14 h-14 bg-rose-500/10 hover:bg-rose-500/20 rounded-2xl flex items-center justify-center transition-all border border-rose-500/20"
+                            >
+                                <IonIcon name="trash-outline" className="text-xl text-rose-500" />
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
