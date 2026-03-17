@@ -55,6 +55,11 @@ app.get('/', (req, res) => {
     res.send('Googer Admin API is running...');
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-});
+// Export the app for Vercel
+module.exports = app;
+
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`🚀 Server running on port ${PORT}`);
+    });
+}
