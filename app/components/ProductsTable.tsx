@@ -23,6 +23,10 @@ interface Product {
     description?: string;
     stock?: number;
     seller_id?: string;
+    return_policy?: string;
+    warranty_info?: string;
+    delivery_info?: string;
+    shipping_info?: string;
 }
 
 interface ProductsTableProps {
@@ -359,7 +363,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                         <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 space-y-8">
                             {/* Product Title & Categories */}
                             <div className="space-y-4">
-                                <h2 className="text-4xl font-black text-white leading-tight uppercase tracking-tight">{selectedProduct.title}</h2>
+                                <h2 className="text-2xl font-black text-white leading-tight uppercase tracking-tight">{selectedProduct.title}</h2>
                                 <div className="flex flex-wrap gap-2">
                                     {[selectedProduct.category, selectedProduct.sub_category, selectedProduct.level3_category].filter(Boolean).map((cat, i) => (
                                         <span key={i} className="px-4 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 text-[10px] font-black uppercase tracking-widest border border-blue-500/20">
@@ -431,31 +435,49 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                             {/* Product Description */}
                             <div className="space-y-4">
                                 <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Product Description</p>
-                                <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/5">
-                                    <p className="text-sm text-slate-400 leading-relaxed font-medium">
+                                <div className="p-4 rounded-[1.5rem] bg-white/[0.02] border border-white/5">
+                                    <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
                                         {selectedProduct.description || "No description provided for this item."}
                                     </p>
+                                </div>
+                            </div>
+
+                            {/* Return & Warranty */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5">
+                                    <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Return Policy</p>
+                                    <p className="text-xs font-bold text-white">{selectedProduct.return_policy || '4 days'}</p>
+                                </div>
+                                <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5">
+                                    <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Warranty Info</p>
+                                    <p className="text-xs font-bold text-white">{selectedProduct.warranty_info || '6 Months'}</p>
+                                </div>
+                            </div>
+
+                            {/* Available Countries */}
+                            <div className="space-y-4">
+                                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Available Countries</p>
+                                <div className="p-5 rounded-[1.5rem] bg-white/[0.02] border border-white/5 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                        <p className="text-xs font-bold text-white">{selectedProduct.delivery_info || 'Sri Lanka'}</p>
+                                    </div>
+                                    <span className="text-[10px] font-black text-slate-500 uppercase">R0</span>
                                 </div>
                             </div>
                         </div>
 
                         {/* Modal Footer Actions */}
-                        <div className="p-6 md:p-8 border-t border-white/5 flex gap-4">
-                            <button className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-widest py-4 rounded-2xl transition-all flex items-center justify-center gap-3">
-                                <IonIcon name="share-social-outline" className="text-lg" />
-                                Share
-                            </button>
-                            <button className="w-14 h-14 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center justify-center transition-all border border-white/10">
-                                <IonIcon name="create-outline" className="text-xl text-slate-400" />
-                            </button>
+                        <div className="p-6 border-t border-white/5 flex gap-4">
                             <button 
                                 onClick={() => {
                                     handleAction(selectedProduct.id, 'Delete');
                                     setSelectedProduct(null);
                                 }}
-                                className="w-14 h-14 bg-rose-500/10 hover:bg-rose-500/20 rounded-2xl flex items-center justify-center transition-all border border-rose-500/20"
+                                className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-black text-[10px] uppercase tracking-widest py-4 rounded-2xl transition-all border border-rose-500/20 flex items-center justify-center gap-3"
                             >
-                                <IonIcon name="trash-outline" className="text-xl text-rose-500" />
+                                <IonIcon name="trash-outline" className="text-lg" />
+                                Delete Product
                             </button>
                         </div>
                     </div>
