@@ -214,9 +214,9 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                     <table className="w-full text-left min-w-[800px]">
                         <thead>
                             <tr className="bg-[#1a1a1a]/50 text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">
-                                <th className="px-3 py-5">Product Details</th>
-                                <th className="px-3 py-5">Seller</th>
-                                <th className="px-3 py-5 text-right">Moderation Actions</th>
+                                <th className="px-2 py-5 w-auto">Product Details</th>
+                                <th className="px-2 py-5 w-[200px]">Seller</th>
+                                <th className="px-2 py-5 text-right w-[400px]">Moderation Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-[#1a1a1a]">
@@ -229,7 +229,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                             ) : (
                                 products.map((product) => (
                                     <tr key={product.id} className="hover:bg-white/[0.02] transition-all group border-b border-[#1a1a1a]">
-                                        <td className="px-3 py-6">
+                                        <td className="px-2 py-6">
                                             <div className="flex items-start gap-5">
                                                 <div 
                                                     onClick={(e) => {
@@ -266,34 +266,34 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                 </div>
                                                 <div className="min-w-0 space-y-2">
                                                     <div>
-                                                        <p className="font-bold text-white group-hover:text-blue-400 transition-colors text-xs mb-0.5">{renderSafe(product.title)}</p>
-                                                        <p className="text-[9px] text-slate-500 font-mono uppercase tracking-tighter">PID-{product.id}</p>
+                                                        <p className="font-bold text-white group-hover:text-blue-400 transition-colors text-sm mb-0.5">{renderSafe(product.title)}</p>
+                                                        <p className="text-[10px] text-slate-500 font-mono uppercase tracking-tighter">PID-{product.id}</p>
                                                     </div>
                                                     
-                                                    <div className="flex flex-col gap-1 mt-1">
-                                                        <span className="text-[10px] text-white">R {parseFloat(product.price || '0').toLocaleString()}</span>
-                                                        <span className="text-[9px] text-slate-400 uppercase tracking-widest">{product.category || 'Uncategorized'}</span>
-                                                        <span className={`text-[9px] uppercase tracking-widest ${
+                                                    <div className="flex flex-col gap-1.5 mt-2">
+                                                        <span className="text-xs font-bold text-white">R {parseFloat(product.price || '0').toLocaleString()}</span>
+                                                        <span className="text-[11px] text-slate-400 uppercase tracking-widest">{product.category || 'Uncategorized'}</span>
+                                                        <span className={`text-[11px] uppercase tracking-widest font-bold ${
                                                             product.status === 'active' ? 'text-emerald-400' : 
                                                             product.status === 'pending' || product.status === 'review' || product.status === 'reviewing' ? 'text-purple-400' : 
                                                             'text-rose-400'
                                                         }`}>
                                                             {product.status}
                                                         </span>
-                                                        <span className="text-[9px] text-slate-500">
+                                                        <span className="text-[11px] text-slate-500 font-medium">
                                                             {product.created_at ? new Date(product.created_at).toLocaleDateString() : '-'}
                                                         </span>
                                                     </div>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-3 py-4">
+                                        <td className="px-2 py-4">
                                             <div className="flex flex-col">
-                                                <span className="text-white font-bold text-xs">{renderSafe(product.username) || 'Unknown'}</span>
-                                                <span className="text-[9px] text-slate-500 font-mono uppercase tracking-widest mt-0.5">ID: {product.seller_id || product.user_id}</span>
+                                                <span className="text-white font-bold text-sm tracking-tight">{renderSafe(product.username) || 'Unknown'}</span>
+                                                <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest mt-1">ID: {product.seller_id || product.user_id}</span>
                                             </div>
                                         </td>
-                                        <td className="px-3 py-4 text-right">
+                                        <td className="px-2 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2">
                                                 <button
                                                     onClick={() => handleAction(product.id, 'active')}
