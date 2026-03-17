@@ -144,6 +144,16 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
         setCurrentImageIndex(0);
     };
 
+    const renderSafe = (val: any, fallback: string = '-') => {
+        if (val === null || val === undefined) return fallback;
+        if (typeof val === 'object') {
+            if (val.text) return val.text;
+            if (val.name) return val.name;
+            return JSON.stringify(val);
+        }
+        return String(val);
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -219,14 +229,14 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                     </div>
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <p className="font-bold text-white group-hover:text-blue-400 transition-colors truncate max-w-[180px] text-xs">{product.title}</p>
+                                                    <p className="font-bold text-white group-hover:text-blue-400 transition-colors truncate max-w-[180px] text-xs">{renderSafe(product.title)}</p>
                                                     <p className="text-[9px] text-slate-500 font-mono mt-0.5 uppercase tracking-tighter">PID-{product.id}</p>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col">
-                                                <span className="text-white font-bold text-xs">{product.username || 'Unknown'}</span>
+                                                <span className="text-white font-bold text-xs">{renderSafe(product.username) || 'Unknown'}</span>
                                                 <span className="text-[9px] text-slate-500 font-mono uppercase tracking-widest mt-0.5">ID: {product.seller_id || product.user_id}</span>
                                             </div>
                                         </td>
@@ -367,7 +377,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                 <div className="flex flex-wrap gap-2">
                                     {[selectedProduct.category, selectedProduct.sub_category, selectedProduct.level3_category].filter(Boolean).map((cat, i) => (
                                         <span key={i} className="px-4 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 text-[10px] font-black uppercase tracking-widest border border-blue-500/20">
-                                            {cat}
+                                            {renderSafe(cat)}
                                         </span>
                                     ))}
                                 </div>
@@ -436,9 +446,9 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                             <div className="space-y-4">
                                 <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Product Description</p>
                                 <div className="p-4 rounded-[1.5rem] bg-white/[0.02] border border-white/5">
-                                    <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
-                                        {selectedProduct.description || "No description provided for this item."}
-                                    </p>
+                                    <div className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                                        {renderSafe(selectedProduct.description, "No description provided for this item.")}
+                                    </div>
                                 </div>
                             </div>
 
@@ -446,11 +456,11 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5">
                                     <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Return Policy</p>
-                                    <p className="text-xs font-bold text-white">{selectedProduct.return_policy || '4 days'}</p>
+                                    <p className="text-xs font-bold text-white">{renderSafe(selectedProduct.return_policy, '4 days')}</p>
                                 </div>
                                 <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5">
                                     <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Warranty Info</p>
-                                    <p className="text-xs font-bold text-white">{selectedProduct.warranty_info || '6 Months'}</p>
+                                    <p className="text-xs font-bold text-white">{renderSafe(selectedProduct.warranty_info, '6 Months')}</p>
                                 </div>
                             </div>
 
@@ -460,7 +470,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                 <div className="p-5 rounded-[1.5rem] bg-white/[0.02] border border-white/5 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                                        <p className="text-xs font-bold text-white">{selectedProduct.delivery_info || 'Sri Lanka'}</p>
+                                        <p className="text-xs font-bold text-white">{renderSafe(selectedProduct.delivery_info, 'Sri Lanka')}</p>
                                     </div>
                                     <span className="text-[10px] font-black text-slate-500 uppercase">R0</span>
                                 </div>
