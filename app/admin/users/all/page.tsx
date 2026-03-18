@@ -62,7 +62,12 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
     : users;
 
   const totalUserBalance = typeFilteredUsers.reduce((sum, user) => sum + parseFloat(user.wallet_balance || '0'), 0);
-  const googerBalance = stats?.googer_balance || "50,000.00";
+  
+  // Googer Balance should only show the platform-wide 50k/stats balance for "All Users"
+  // For specialized views, it should be 0 or a specific group balance if available
+  const displayBalance = userTypeFilter 
+    ? (stats?.[`${userTypeFilter.toLowerCase()}_balance`] || "0.00")
+    : (stats?.googer_balance || "50,000.00");
 
   const filteredUsers = typeFilteredUsers.filter(user => {
     if (!searchTerm) return true;
@@ -123,7 +128,7 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
             <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">
               {userTypeFilter ? `${userTypeFilter}s` : "Googer"} Balance
             </p>
-            <h3 className="text-2xl font-black text-white">R {googerBalance}</h3>
+            <h3 className="text-2xl font-black text-white">R {displayBalance}</h3>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
             <IonIcon name="business-outline" className="text-2xl text-emerald-400" />
