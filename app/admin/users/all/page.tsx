@@ -19,21 +19,26 @@ export default function AllUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeMenu, setActiveMenu] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [stats, setStats] = useState<any>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newUserData, setNewUserData] = useState({ username: '', full_name: '', email: '', user_type: 'User' });
 
   useEffect(() => {
-    const loadUsers = async () => {
+    const loadInitialData = async () => {
       try {
         setLoading(true);
-        const data = await adminService.fetchAllUsers();
-        setUsers(data || []);
+        const [usersData, statsData] = await Promise.all([
+          adminService.fetchAllUsers(),
+          adminService.fetchStats().catch(() => null)
+        ]);
+        setUsers(usersData || []);
+        setStats(statsData);
       } catch (err: any) {
         console.error(err);
         setError(err.message);
         
-        // Fallback to mock data if API fails (for demo purposes)
+        // Fallback to mock data if API fails
         const mockUsers: User[] = [
           { id: 1, user_id: "2160", username: "test", full_name: "test user", user_type: "User", email: "test@example.com", wallet_balance: "1210.00", status: 'Active' },
           { id: 2, user_id: "9258", username: "test1", full_name: "test1 user", user_type: "Seller", email: "test1@example.com", wallet_balance: "790.50", status: 'Active' },
@@ -45,15 +50,27 @@ export default function AllUsersPage() {
       }
     };
 
-    loadUsers();
+    loadInitialData();
   }, []);
 
-  const handleStatusToggle = async (user: User) => {
+  const totalUserBalance = users.reduce((sum, user) => sum + parseFloat(user.wallet_balance || '0'), 0);
+  const googerBalance = stats?.googer_balance || "50,000.00"; // Fallback or mock if not in stats
+
+  const filteredUsers = users.filter(user => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    return (
+      (user.user_id && user.user_id.toLowerCase().includes(search)) ||
+      (user.username && user.username.toLowerCase().includes(search)) ||
+      (user.full_name && user.full_name.toLowerCase().includes(search)) ||
+      (user.email && user.email.toLowerCase().includes(search))
+    );
+  });
+
+  const handleStatusToggle = async (user: User, status: string) => {
     try {
-      const newStatus = user.status === 'Active' ? 'Deactivated' : 'Active';
-      await adminService.updateUserStatus(user.id.toString(), newStatus);
-      setUsers(users.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
-      setActiveMenu(null);
+      await adminService.updateUserStatus(user.id.toString(), status);
+      setUsers(users.map(u => u.id === user.id ? { ...u, status } : u));
     } catch (err: any) {
       alert("Error: " + err.message);
     }
@@ -61,103 +78,144 @@ export default function AllUsersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">All Users</h1>
-          <p className="text-slate-400">Manage and view all registered users.</p>
+          <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">User Management</h1>
+          <p className="text-slate-400 text-sm font-medium">Manage and view all registered users in the ecosystem.</p>
         </div>
         <button 
           onClick={() => setShowAddModal(true)}
-          className="bg-white hover:bg-gray-200 text-black px-4 py-2 rounded-lg transition-colors flex items-center gap-2 font-bold"
+          className="bg-white hover:bg-gray-200 text-black px-6 py-3 rounded-2xl transition-all flex items-center gap-2 font-black text-xs uppercase tracking-widest active:scale-95 shadow-lg shadow-white/10"
         >
-          <IonIcon name="person-add-outline" />
+          <IonIcon name="person-add-outline" className="text-lg" />
           Add New User
         </button>
       </div>
 
-      <div className="bg-[#09090b] border border-[#1a1a1a] rounded-xl min-h-[700px] relative overflow-visible">
-        <div className="w-full">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-blue-600/10 border border-blue-500/20 rounded-[2rem] p-6 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Total Users Balance</p>
+            <h3 className="text-2xl font-black text-white">R {totalUserBalance.toLocaleString()}</h3>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
+            <IonIcon name="wallet-outline" className="text-2xl text-blue-400" />
+          </div>
+        </div>
+        <div className="bg-emerald-600/10 border border-emerald-500/20 rounded-[2rem] p-6 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Googer Balance</p>
+            <h3 className="text-2xl font-black text-white">R {googerBalance}</h3>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
+            <IonIcon name="business-outline" className="text-2xl text-emerald-400" />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-[#09090b] border border-[#1a1a1a] rounded-[2rem] relative min-h-[500px] shadow-2xl overflow-hidden">
+        {loading && (
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center rounded-[2rem]">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-white"></div>
+          </div>
+        )}
+
+        <div className="p-6 border-b border-[#1a1a1a] flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="relative flex-1 max-w-md group">
+            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
+              <IonIcon name="search-outline" className="text-lg" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search User ID, Name, or Email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-[#0c0c0e] border border-white/5 rounded-2xl py-3.5 pl-12 pr-4 text-xs font-medium text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/30 focus:ring-4 focus:ring-blue-500/5 transition-all"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+             <div className="px-4 py-2 h-11 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filteredUsers.length} Users</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full overflow-x-auto custom-scrollbar">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-[#1a1a1a] text-slate-400 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">ID</th>
-                <th className="px-6 py-4 font-semibold">User ID</th>
-                <th className="px-6 py-4 font-semibold">Username</th>
-                <th className="px-6 py-4 font-semibold">Full Name</th>
-                <th className="px-6 py-4 font-semibold">Email</th>
-                <th className="px-6 py-4 font-semibold">Type</th>
-                <th className="px-6 py-4 font-semibold">Balance</th>
-                <th className="px-6 py-4 font-semibold text-right">Actions</th>
+              <tr className="bg-[#1a1a1a]/50 text-slate-300 text-[9px] font-black uppercase tracking-[0.2em]">
+                <th className="px-6 py-5">User Information</th>
+                <th className="px-6 py-5 text-center">Wallet Balance</th>
+                <th className="px-6 py-5 text-right w-[400px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1a1a1a]">
-              {users.map((user) => (
-                <tr key={user.id} className="hover:bg-slate-800/30 transition-colors text-sm">
-                  <td className="px-6 py-4 text-slate-500 font-mono">#{user.id}</td>
-                  <td className="px-6 py-4 text-white font-bold">{user.user_id}</td>
-                  <td className="px-6 py-4 text-slate-400">@{user.username}</td>
-                  <td className="px-6 py-4">
-                    <a href={`/admin/users/${user.id}`} className="text-white hover:underline font-medium">
-                      {user.full_name}
-                    </a>
-                  </td>
-                  <td className="px-6 py-4 text-slate-400">{user.email}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${user.user_type === 'seller' ? 'bg-white/10 text-white' : 'bg-white/5 text-gray-400'
-                      }`}>
-                      {user.user_type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 font-medium text-white">R {user.wallet_balance}</td>
-                  <td className={`px-6 py-4 text-right relative ${activeMenu === user.id ? 'z-[50]' : ''}`}>
-                    <button
-                      onClick={() => setActiveMenu(activeMenu === user.id ? null : user.id)}
-                      className={`p-2 hover:bg-[#1a1a1a] rounded-xl transition-all ${activeMenu === user.id ? 'text-white bg-[#1a1a1a]' : 'text-slate-500'}`}
-                    >
-                      <IonIcon name="ellipsis-vertical" className="text-lg" />
-                    </button>
-
-                    {activeMenu === user.id && (
-                      <>
-                        <div className="fixed inset-0 z-[60]" onClick={() => setActiveMenu(null)}></div>
-                        <div className="absolute right-12 top-0 w-60 bg-[#0c0c0e] border border-white/10 rounded-2xl shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] z-[70] py-4 animate-in fade-in zoom-in-95 duration-200 text-left overflow-hidden">
-                          <p className="px-5 py-2 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] border-b border-white/5 mb-2 flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                            User Settings
-                          </p>
-                          
-                          <a
-                            href={`/admin/users/${user.id}`}
-                            className="flex items-center gap-3 px-5 py-3 text-xs text-white hover:bg-white/5 transition-colors"
-                          >
-                            <IonIcon name="person-outline" className="text-lg text-slate-400" />
-                            View Full Profile
-                          </a>
-
-                          <div className="h-px bg-white/5 my-2 mx-5"></div>
-
-                          <button
-                            onClick={() => handleStatusToggle(user)}
-                            className={`w-full flex items-center gap-3 px-5 py-3 text-xs transition-colors ${user.status === 'Active' ? 'text-rose-400 hover:bg-rose-400/10' : 'text-emerald-400 hover:bg-emerald-400/10'
-                              }`}
-                          >
-                            <IonIcon name={user.status === 'Active' ? "close-circle-outline" : "checkmark-circle-outline"} className="text-lg" />
-                            {user.status === 'Active' ? 'Deactivate Account' : 'Activate Account'}
-                          </button>
-
-                          <button 
-                            onClick={() => { alert("Edit form functionality would go here"); setActiveMenu(null); }}
-                            className="w-full flex items-center gap-3 px-5 py-3 text-xs text-white hover:bg-white/5 transition-colors"
-                          >
-                            <IonIcon name="create-outline" className="text-lg text-slate-400" />
-                            Edit User Details
-                          </button>
-                        </div>
-                      </>
-                    )}
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-6 py-20 text-center text-slate-500 font-medium italic">
+                    {searchTerm ? `No users found matching "${searchTerm}"` : "No users registered yet."}
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredUsers.map((user) => (
+                  <tr key={user.id} className="hover:bg-white/[0.02] transition-all group">
+                    <td className="px-6 py-6">
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 overflow-hidden shrink-0">
+                          <IonIcon name="person" className="text-xl" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-bold text-white text-sm">{user.full_name}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">ID: {user.user_id}</span>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-slate-400 font-medium tracking-tight">@{user.username}</span>
+                            <span className="text-[11px] text-slate-500 italic mt-0.5">{user.email}</span>
+                            <div className="flex items-center gap-2 mt-2">
+                              <span className={`px-3 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                                user.user_type === 'Seller' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 
+                                user.user_type === 'Employee' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                'bg-white/5 text-slate-400 border-white/5'
+                              }`}>
+                                {user.user_type}
+                              </span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${user.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{user.status}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-lg font-black text-white">R {parseFloat(user.wallet_balance || '0').toLocaleString()}</span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <a 
+                          href={`/admin/users/${user.id}`}
+                          className="h-10 px-4 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-black uppercase tracking-widest hover:border-blue-500/30 hover:text-blue-400 transition-all flex items-center gap-2"
+                        >
+                          <IonIcon name="person-outline" className="text-sm" />
+                          View Full Profile
+                        </a>
+                        <button
+                          onClick={() => handleStatusToggle(user, user.status === 'Active' ? 'Deactivated' : 'Active')}
+                          className={`h-10 px-4 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
+                            user.status === 'Active' 
+                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20' 
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          <IonIcon name={user.status === 'Active' ? "close-circle-outline" : "checkmark-circle-outline"} className="text-sm" />
+                          {user.status === 'Active' ? 'Deactivate Account' : 'Activate Account'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
