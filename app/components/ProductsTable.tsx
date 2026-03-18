@@ -401,6 +401,14 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                             Reject
                                                         </button>
                                                     </>
+                                                ) : statusFilter === 'rejected' ? (
+                                                    <button
+                                                        onClick={() => handleAction(product.id, 'active')}
+                                                        className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                    >
+                                                        <IonIcon name="checkmark-circle-outline" className="text-xs" />
+                                                        Approve
+                                                    </button>
                                                 ) : (
                                                     <button
                                                         onClick={() => handleAction(product.id, 'inactive')}
@@ -740,6 +748,17 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                         Reject
                                     </button>
                                 </>
+                            ) : statusFilter === 'rejected' ? (
+                                <button 
+                                    onClick={() => {
+                                        handleAction(selectedProduct.id, 'active');
+                                        setSelectedProduct(null);
+                                    }}
+                                    className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-emerald-500/20 flex items-center justify-center gap-3"
+                                >
+                                    <IonIcon name="checkmark-circle-outline" className="text-lg" />
+                                    Approve
+                                </button>
                             ) : (
                                 <button 
                                     onClick={() => {
