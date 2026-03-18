@@ -57,12 +57,12 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
     loadInitialData();
   }, [userTypeFilter]);
 
-  const totalUserBalance = users.reduce((sum, user) => sum + parseFloat(user.wallet_balance || '0'), 0);
-  const googerBalance = stats?.googer_balance || "50,000.00";
-
   const typeFilteredUsers = userTypeFilter 
     ? users.filter(user => user.user_type === userTypeFilter)
     : users;
+
+  const totalUserBalance = typeFilteredUsers.reduce((sum, user) => sum + parseFloat(user.wallet_balance || '0'), 0);
+  const googerBalance = stats?.googer_balance || "50,000.00";
 
   const filteredUsers = typeFilteredUsers.filter(user => {
     if (!searchTerm) return true;
@@ -109,7 +109,9 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-blue-600/10 border border-blue-500/20 rounded-[2rem] p-6 flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Total Users Balance</p>
+            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">
+              Total {userTypeFilter ? `${userTypeFilter}s` : "Users"} Balance
+            </p>
             <h3 className="text-2xl font-black text-white">R {totalUserBalance.toLocaleString()}</h3>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
@@ -118,7 +120,9 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
         </div>
         <div className="bg-emerald-600/10 border border-emerald-500/20 rounded-[2rem] p-6 flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Googer Balance</p>
+            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">
+              {userTypeFilter ? `${userTypeFilter}s` : "Googer"} Balance
+            </p>
             <h3 className="text-2xl font-black text-white">R {googerBalance}</h3>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
