@@ -19,6 +19,7 @@ interface Product {
     status: string;
     views: number;
     created_at: string;
+    updated_at?: string;
     image_url: string;
     description?: string;
     stock?: number;
@@ -51,6 +52,8 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
+    const [sortBy, setSortBy] = useState<"newest" | "oldest" | "modified">("newest");
+    const [isSortOpen, setIsSortOpen] = useState(false);
 
     const cleanImageUrl = (url: string) => {
         if (!url) return '';
@@ -121,6 +124,17 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
             (p.seller_id && p.seller_id.toLowerCase().includes(search)) ||
             (p.title && p.title.toLowerCase().includes(search))
         );
+    });
+
+    const sortedProducts = [...filteredProducts].sort((a, b) => {
+        if (sortBy === "newest") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (sortBy === "oldest") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (sortBy === "modified") {
+            const dateA = new Date(a.updated_at || a.created_at).getTime();
+            const dateB = new Date(b.updated_at || b.created_at).getTime();
+            return dateB - dateA;
+        }
+        return 0;
     });
 
     const handleAction = async (productId: number, status: string) => {
@@ -237,9 +251,44 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                         />
                     </div>
                     <div className="flex items-center gap-3">
-                        <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3">
+                        <div className="relative">
+                            <button 
+                                onClick={() => setIsSortOpen(!isSortOpen)}
+                                className="h-11 px-4 rounded-2xl bg-[#0c0c0e] border border-white/5 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:border-blue-500/30 transition-all flex items-center gap-2"
+                            >
+                                <IonIcon name="swap-vertical-outline" className="text-sm" />
+                                {sortBy === 'newest' ? 'Newest First' : sortBy === 'oldest' ? 'Oldest First' : 'Date Modified'}
+                            </button>
+                            
+                            {isSortOpen && (
+                                <>
+                                    <div className="fixed inset-0 z-[60]" onClick={() => setIsSortOpen(false)}></div>
+                                    <div className="absolute right-0 top-full mt-2 w-48 bg-[#0c0c0e] border border-white/10 rounded-2xl shadow-2xl z-[70] py-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                        <button 
+                                            onClick={() => { setSortBy("newest"); setIsSortOpen(false); }}
+                                            className={`w-full flex items-center gap-3 px-5 py-3 text-[10px] font-black uppercase tracking-widest transition-colors ${sortBy === 'newest' ? 'text-blue-400 bg-white/5' : 'text-slate-400 hover:bg-white/5'}`}
+                                        >
+                                            <IonIcon name="time-outline" /> Newest First
+                                        </button>
+                                        <button 
+                                            onClick={() => { setSortBy("oldest"); setIsSortOpen(false); }}
+                                            className={`w-full flex items-center gap-3 px-5 py-3 text-[10px] font-black uppercase tracking-widest transition-colors ${sortBy === 'oldest' ? 'text-blue-400 bg-white/5' : 'text-slate-400 hover:bg-white/5'}`}
+                                        >
+                                            <IonIcon name="hourglass-outline" /> Oldest First
+                                        </button>
+                                        <button 
+                                            onClick={() => { setSortBy("modified"); setIsSortOpen(false); }}
+                                            className={`w-full flex items-center gap-3 px-5 py-3 text-[10px] font-black uppercase tracking-widest transition-colors ${sortBy === 'modified' ? 'text-blue-400 bg-white/5' : 'text-slate-400 hover:bg-white/5'}`}
+                                        >
+                                            <IonIcon name="refresh-outline" /> Date Modified
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <div className="px-4 py-2 h-11 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3">
                             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filteredProducts.length} Results</span>
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{sortedProducts.length} Results</span>
                         </div>
                     </div>
                 </div>
@@ -267,7 +316,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                     </td>
                                 </tr>
                             ) : (
-                                filteredProducts.map((product) => (
+                                sortedProducts.map((product) => (
                                     <tr key={product.id} className="hover:bg-white/[0.02] transition-all group border-b border-[#1a1a1a]">
                                         <td className="px-2 py-6">
                                             <div className="flex items-start gap-5">

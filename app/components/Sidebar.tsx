@@ -22,7 +22,6 @@ const menuItems = [
         name: "Products", 
         icon: "bag-handle", 
         children: [
-            { name: "New Products", href: "/admin/products/new" },
             { name: "All Products", href: "/admin/products/all" },
             { name: "Active Products", href: "/admin/products/active" },
             { name: "Reviewed Products", href: "/admin/products/reviewed" },
