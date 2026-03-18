@@ -46,12 +46,19 @@ exports.createMarketItem = async (req, res) => {
             req.files.forEach((file, index) => {
                 const base64 = file.buffer.toString('base64');
                 const url = `data:${file.mimetype};base64,${base64}`;
-                gallery.push({ url, color: (variants[index] && variants[index].color) || null });
-                if (variants[index]) variants[index].url = url;
+                gallery.push({ url, image_url: url, color: (variants[index] && variants[index].color) || null });
+                if (variants[index]) {
+                    variants[index].url = url;
+                    variants[index].image_url = url;
+                }
             });
         }
 
-        const imageUrl = gallery.length > 0 ? gallery[0].url : (variants[0]?.url || null);
+        const allMedia = gallery.length > 0 
+            ? gallery.map(g => g.url) 
+            : variants.map(v => v.url || v.image_url).filter(Boolean);
+        
+        const imageUrl = allMedia.length > 1 ? JSON.stringify(allMedia) : (allMedia[0] || null);
 
         if (!title || !price || !category) {
             return res.status(400).json({ success: false, message: 'Title, price, and category are required' });
@@ -145,12 +152,19 @@ exports.updateMarketItem = async (req, res) => {
             req.files.forEach((file, index) => {
                 const base64 = file.buffer.toString('base64');
                 const url = `data:${file.mimetype};base64,${base64}`;
-                newGalleryItems.push({ url, color: (variants && variants[index] && variants[index].color) || null });
-                if (variants && variants[index]) variants[index].url = url;
+                newGalleryItems.push({ url, image_url: url, color: (variants && variants[index] && variants[index].color) || null });
+                if (variants && variants[index]) {
+                    variants[index].url = url;
+                    variants[index].image_url = url;
+                }
             });
         }
 
-        const imageUrl = newGalleryItems.length > 0 ? newGalleryItems[0].url : (variants?.[0]?.url || item.image_url);
+        const allMedia = newGalleryItems.length > 0 
+            ? newGalleryItems.map(g => g.url) 
+            : variants?.map(v => v.url || v.image_url).filter(Boolean);
+        
+        const imageUrl = (allMedia && allMedia.length > 1) ? JSON.stringify(allMedia) : (allMedia && allMedia.length > 0 ? allMedia[0] : item.image_url);
         const numericPrice = price ? parseFloat(price) : item.price;
         const numericPromoPrice = promo_price !== undefined ? (promo_price ? parseFloat(promo_price) : null) : item.promo_price;
 

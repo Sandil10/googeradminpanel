@@ -146,7 +146,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
     const [showSuccessPopup, setShowSuccessPopup] = useState(false);
     const [openPicker, setOpenPicker] = useState<{ type: string, field: string, options: string[], title: string, value: string, manualQuery?: string } | null>(null);
     const [tempSelections, setTempSelections] = useState<string[]>([]);
-    const [showModeSelection, setShowModeSelection] = useState(false);
+    const [showModeSelection, setShowModeSelection] = useState(!initialData);
     const [showSourceSelection, setShowSourceSelection] = useState(false);
     const [showLinkInput, setShowLinkInput] = useState(false);
     const [isAddingLink, setIsAddingLink] = useState(false);
@@ -154,6 +154,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
     const [linkPreview, setLinkPreview] = useState<{ url: string, isVideo: boolean } | null>(null);
     const [uploadMode, setUploadMode] = useState<'single' | 'variants' | null>(null);
     const [imageSource, setImageSource] = useState<'file' | 'link' | null>(null);
+    const [selectedPostType, setSelectedPostType] = useState<'single' | 'variants' | null>(initialData ? (initialData.variants_data ? 'variants' : 'single') : null);
     const [formErrors, setFormErrors] = useState<string[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -813,13 +814,15 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
             }));
 
             // Variants (Colors and detailed data associated with each image/group)
-            const submissionVariants = variants.map((v, i) => ({
+            // Fix: ensure ALL previews are sent even in single mode (where variant count is just 1)
+            const mappingSource = uploadMode === 'single' ? previews : variants;
+            const submissionVariants = mappingSource.map((_, i) => ({
                 color: imageColors[i] || "None",
                 index: i,
                 image_url: previews[i] || null,
                 media_type: mediaTypes[i] || "image",
                 video_url: videoUrls[i] || null,
-                ...v
+                ...(uploadMode === 'single' ? (variants[0] || {}) : (variants[i] || {}))
             }));
             data.append('variants_data', JSON.stringify(submissionVariants));
 
@@ -1320,12 +1323,22 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                                     <div className="flex items-center justify-between mb-2">
                                         <div className="flex flex-col">
                                             <h3 className="text-sm font-black text-white/90 italic uppercase tracking-wider">
-                                                {uploadMode === 'single' ? 'Product Configuration' : 'Variant Details'}
+                                                {uploadMode === 'single' ? 'Product Configuration' : `Variant ${activeImageIndex + 1} Configuration`}
                                             </h3>
                                             <div className="flex items-center gap-2 mt-1">
                                                 <p className="text-[8px] text-slate-400/80 font-bold uppercase tracking-widest">
-                                                    {uploadMode === 'single' ? 'Settings apply to all views' : `Configuring ${imageColors[activeImageIndex] || "Selected"} Unit`}
+                                                    {uploadMode === 'single' ? 'Settings apply to all views' : `Customizing ${imageColors[activeImageIndex] || "this specific"} selection`}
                                                 </p>
+                                                {uploadMode === 'variants' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowSourceSelection(true)}
+                                                        className="ml-3 px-2 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[7px] font-black text-blue-400 uppercase tracking-widest hover:bg-blue-500/20 transition-all flex items-center gap-1"
+                                                    >
+                                                        <IonIcon name="camera-outline" />
+                                                        Change Selection Image
+                                                    </button>
+                                                )}
                                                 {uploadMode === 'variants' && (
                                                     <div
                                                         className="flex items-center gap-1.5 ml-2 pl-2 border-l border-white/10 cursor-pointer group"
@@ -1938,14 +1951,15 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                     <div className="absolute inset-0 bg-black/95 backdrop-blur-sm" onClick={() => setShowModeSelection(false)} />
                     <div className="relative bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 p-8">
                         <div className="text-center mb-10">
-                            <h3 className="text-xl font-black text-white italic uppercase tracking-[0.2em]">Product</h3>
-                            <p className="text-[10px] text-slate-400/80 font-black uppercase mt-3 tracking-widest leading-relaxed">Choose how you want to present<br />your product listing</p>
+                            <h3 className="text-xl font-black text-white italic uppercase tracking-[0.2em]">Select Post Type</h3>
+                            <p className="text-[10px] text-slate-400/80 font-black uppercase mt-3 tracking-widest leading-relaxed">This is your first mandatory choice.<br />How do you want to present your product?</p>
                         </div>
 
                         <div className="flex flex-col gap-4">
                             <div
                                 onClick={() => {
                                     setUploadMode('single');
+                                    setSelectedPostType('single');
                                     setShowModeSelection(false);
                                     setShowSourceSelection(true);
                                 }}
@@ -1965,6 +1979,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                             <div
                                 onClick={() => {
                                     setUploadMode('variants');
+                                    setSelectedPostType('variants');
                                     setShowModeSelection(false);
                                     setShowSourceSelection(true);
                                 }}
@@ -1975,7 +1990,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                                         <IonIcon name="layers-outline" className="text-2xl" />
                                     </div>
                                     <div>
-                                        <div className="text-sm font-black text-white uppercase tracking-tight">Variants</div>
+                                        <div className="text-sm font-black text-white uppercase tracking-tight">Variant Post</div>
                                         <div className="text-[9px] text-slate-400/80 font-bold uppercase mt-1 leading-relaxed">Multiple colors, sizes, or<br />different types in one listing</div>
                                     </div>
                                 </div>

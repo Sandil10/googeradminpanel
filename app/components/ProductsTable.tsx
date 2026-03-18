@@ -77,21 +77,40 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
         return '';
     };
 
-    const parseImages = (imageUrl: string): string[] => {
+    const parseImages = (imageUrl: any): string[] => {
         if (!imageUrl) return [];
+        
+        // Handle cases where the database might already return an array (JSONB)
+        if (Array.isArray(imageUrl)) {
+            return imageUrl.map(img => cleanImageUrl(typeof img === 'object' ? (img.url || img.image_url || img) : img)).filter(Boolean);
+        }
+
         try {
-            if (imageUrl.startsWith('[') || imageUrl.startsWith('{')) {
-                const parsed = JSON.parse(imageUrl);
-                const items = Array.isArray(parsed) ? parsed : [parsed];
-                return items.map(i => cleanImageUrl(typeof i === 'object' ? (i.url || i.image_url) : i)).filter(url => url !== '');
-            } else if (imageUrl.startsWith('data:')) {
-                const parts = imageUrl.split('data:').filter(p => p.trim() !== '');
-                if (parts.length > 1) return parts.map(p => cleanImageUrl('data:' + p)).filter(url => url !== '');
-                return [cleanImageUrl(imageUrl)];
-            } else {
-                return imageUrl.split(',').map(s => cleanImageUrl(s)).filter(url => url !== '');
+            const val = String(imageUrl).trim();
+            if (!val) return [];
+
+            // 1. Try parsing as JSON first (handles ["url1", "url2"])
+            if (val.startsWith('[') || val.startsWith('{')) {
+                try {
+                    const parsed = JSON.parse(val);
+                    const items = Array.isArray(parsed) ? parsed : [parsed];
+                    return items.map(img => cleanImageUrl(typeof img === 'object' ? (img.url || img.image_url || img) : img)).filter(Boolean);
+                } catch (e) { /* ignore and fallback */ }
             }
+
+            // 2. Handle Data URL sequences (Base64) - specific check to avoid splitting inside the base64 string
+            if (val.includes('data:')) {
+                // Look for data:... patterns that are likely separate images
+                const dataUrlMatches = val.match(/data:image\/[a-zA-Z+-]+;base64,[^,]+(?=,data:image|$)/g);
+                if (dataUrlMatches && dataUrlMatches.length > 0) {
+                    return dataUrlMatches.map(m => cleanImageUrl(m)).filter(Boolean);
+                }
+            }
+
+            // 3. Standard comma-separated URLs fallback
+            return val.split(',').map(s => cleanImageUrl(s.trim())).filter(url => url !== '');
         } catch (e) {
+            console.error("Image parsing failed:", e);
             const cleaned = cleanImageUrl(imageUrl);
             return cleaned ? [cleaned] : [];
         }
@@ -173,19 +192,28 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
 
     const openProductDetails = (product: Product) => {
         // Collect ALL images from primary image_url AND variants
-        let allImages: string[] = parseImages(product.image_url);
+        let allImages: string[] = [];
         
-        // Check variants for more images
-        const variants = product.variants_data || product.variants;
-        if (variants) {
+        // 1. Add from primary image_url
+        if (product.image_url) {
+            parseImages(product.image_url).forEach(img => {
+                if (!allImages.includes(img) && img) allImages.push(img);
+            });
+        }
+        
+        // 2. Check variants for more images (check both variants and variants_data)
+        const variantSources = [product.variants_data, product.variants].filter(Boolean);
+        
+        variantSources.forEach(source => {
             try {
-                const parsedVariants = typeof variants === 'string' ? JSON.parse(variants) : variants;
+                const parsedVariants = typeof source === 'string' ? JSON.parse(source) : source;
                 if (Array.isArray(parsedVariants)) {
                     parsedVariants.forEach(v => {
-                        if (v.image_url) {
-                            const vImages = parseImages(v.image_url);
-                            vImages.forEach(img => {
-                                if (!allImages.includes(img)) allImages.push(img);
+                        // Check both image_url and url properties in the variant object
+                        const vImageUrl = v.image_url || v.url;
+                        if (vImageUrl) {
+                            parseImages(vImageUrl).forEach(img => {
+                                if (!allImages.includes(img) && img) allImages.push(img);
                             });
                         }
                     });
@@ -193,7 +221,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
             } catch (e) {
                 console.error("Error parsing variants for images:", e);
             }
-        }
+        });
 
         setSelectedProduct(product);
         setSelectedImages(allImages);
@@ -452,20 +480,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                     <p className="text-sm font-bold text-white">{selectedProduct.username}</p>
                                 </div>
                             </div>
-                             <div className="flex items-center gap-4 flex-1 max-w-md mx-4">
-                                <div className="relative w-full group">
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
-                                        <IonIcon name="search-outline" className="text-sm" />
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder="Search products..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-[11px] font-medium text-white focus:outline-none focus:border-blue-500/30 transition-all"
-                                    />
-                                </div>
-                            </div>
+                             <div className="flex-1"></div>
                             <div className="flex items-center gap-4">
                                 <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
                                     selectedProduct.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
@@ -497,118 +512,178 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                 </div>
                             </div>
 
-                            {/* Main Image View */}
-                            <div className="relative aspect-video rounded-3xl overflow-hidden bg-black/50 border border-white/10 group/gallery">
-                                {selectedImages.length > 0 ? (
-                                    selectedImages[currentImageIndex].startsWith('data:') ? (
-                                        <img src={selectedImages[currentImageIndex]} alt="" className="w-full h-full object-contain p-4" />
-                                    ) : (
-                                        <Image src={selectedImages[currentImageIndex]} alt="" fill className="object-contain p-4" />
-                                    )
-                                ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-slate-700">
-                                        <IonIcon name="image-outline" className="text-6xl" />
+                            {/* Premium Image Carousel */}
+                            <div className="relative group/carousel">
+                                <div className="aspect-square md:aspect-video rounded-[2.5rem] overflow-hidden bg-black/50 border border-white/10 relative shadow-2xl">
+                                    <div 
+                                        className="h-full flex transition-transform duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]"
+                                        style={{ transform: `translateX(-${currentImageIndex * 100}%)` }}
+                                    >
+                                        {selectedImages.length > 0 ? (
+                                            selectedImages.map((img, idx) => (
+                                                <div key={idx} className="w-full h-full min-w-full relative flex items-center justify-center bg-black">
+                                                    {img.startsWith('data:') ? (
+                                                        <img src={img} alt="" className="w-full h-full object-contain p-4" />
+                                                    ) : (
+                                                        <Image src={img} alt="" fill className="object-contain p-4" priority={idx === 0} />
+                                                    )}
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-700 gap-4">
+                                                <IonIcon name="image-outline" className="text-7xl opacity-20" />
+                                                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">No Images Available</p>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
 
-                                {/* Image Navigation */}
-                                {selectedImages.length > 1 && (
-                                    <>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev > 0 ? prev - 1 : selectedImages.length - 1)) }}
-                                            className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-md text-white border border-white/10 opacity-0 group-hover/gallery:opacity-100 transition-all"
-                                        >
-                                            <IonIcon name="chevron-back" />
-                                        </button>
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev < selectedImages.length - 1 ? prev + 1 : 0)) }}
-                                            className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-md text-white border border-white/10 opacity-0 group-hover/gallery:opacity-100 transition-all"
-                                        >
-                                            <IonIcon name="chevron-forward" />
-                                        </button>
-                                    </>
-                                )}
+                                    {/* Carousel Controls */}
+                                    {selectedImages.length > 1 && (
+                                        <>
+                                            <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-black/40 to-transparent pointer-events-none opacity-0 group-hover/carousel:opacity-100 transition-opacity"></div>
+                                            <div className="absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-black/40 to-transparent pointer-events-none opacity-0 group-hover/carousel:opacity-100 transition-opacity"></div>
+                                            
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev > 0 ? prev - 1 : selectedImages.length - 1)) }}
+                                                className="absolute left-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-xl text-white border border-white/20 opacity-0 group-hover/carousel:opacity-100 transition-all hover:bg-white hover:text-black hover:scale-110 active:scale-95 shadow-2xl flex items-center justify-center z-10"
+                                            >
+                                                <IonIcon name="chevron-back" className="text-xl" />
+                                            </button>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev < selectedImages.length - 1 ? prev + 1 : 0)) }}
+                                                className="absolute right-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-xl text-white border border-white/20 opacity-0 group-hover/carousel:opacity-100 transition-all hover:bg-white hover:text-black hover:scale-110 active:scale-95 shadow-2xl flex items-center justify-center z-10"
+                                            >
+                                                <IonIcon name="chevron-forward" className="text-xl" />
+                                            </button>
+
+                                            {/* Progress Indicators */}
+                                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+                                                {selectedImages.map((_, idx) => (
+                                                    <div 
+                                                        key={idx}
+                                                        onClick={() => setCurrentImageIndex(idx)}
+                                                        className={`h-1.5 rounded-full transition-all duration-500 cursor-pointer ${currentImageIndex === idx ? 'w-8 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'w-1.5 bg-white/30 hover:bg-white/50'}`}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
+                                    
+                                    {/* Image Counter Badge */}
+                                    {selectedImages.length > 0 && (
+                                        <div className="absolute top-6 right-6 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[9px] font-black text-white uppercase tracking-widest z-10">
+                                            {currentImageIndex + 1} / {selectedImages.length}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Multi-column Stats Card */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="bg-white/[0.03] border border-white/5 rounded-3xl p-6">
-                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Pricing Details</p>
+                                <div className="bg-white/[0.03] border border-white/5 rounded-[2rem] p-6 shadow-xl relative overflow-hidden group/card">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-3xl -mr-16 -mt-16 group-hover/card:bg-blue-500/10 transition-colors"></div>
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <div className="w-1 h-1 rounded-full bg-blue-500"></div>
+                                        Pricing Details
+                                    </p>
                                     <div className="flex items-baseline gap-4">
-                                        <span className="text-3xl font-black text-white">R {parseFloat(selectedProduct.price).toLocaleString()}</span>
+                                        <span className="text-4xl font-black text-white tracking-tighter italic">R {parseFloat(selectedProduct.price).toLocaleString()}</span>
                                         {selectedProduct.promo_price && (
-                                            <>
-                                                <span className="text-lg text-slate-500 line-through">R {parseFloat(selectedProduct.promo_price).toLocaleString()}</span>
-                                                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase">
-                                                    {Math.round((1 - parseFloat(selectedProduct.price) / parseFloat(selectedProduct.promo_price)) * 100)}% OFF
+                                            <div className="flex flex-col">
+                                                <span className="text-sm text-slate-500 line-through font-bold">R {parseFloat(selectedProduct.promo_price).toLocaleString()}</span>
+                                                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-tighter">
+                                                    SAVE {Math.round((1 - parseFloat(selectedProduct.price) / parseFloat(selectedProduct.promo_price)) * 100)}%
                                                 </span>
-                                            </>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
-                                <div className="bg-white/[0.03] border border-white/5 rounded-3xl p-6">
-                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Stock Availability</p>
+                                <div className="bg-white/[0.03] border border-white/5 rounded-[2rem] p-6 shadow-xl relative overflow-hidden group/card">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 blur-3xl -mr-16 -mt-16 group-hover/card:bg-purple-500/10 transition-colors"></div>
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <div className="w-1 h-1 rounded-full bg-purple-500"></div>
+                                        Stock Availability
+                                    </p>
                                     <div className="flex items-center gap-2">
-                                        <span className={`text-3xl font-black ${selectedProduct.stock && selectedProduct.stock > 0 ? 'text-white' : 'text-rose-500'}`}>
+                                        <span className={`text-4xl font-black tracking-tighter ${selectedProduct.stock && selectedProduct.stock > 0 ? 'text-white' : 'text-rose-500 italic'}`}>
                                             {selectedProduct.stock || 0} Units
                                         </span>
+                                        {selectedProduct.stock && selectedProduct.stock < 10 && selectedProduct.stock > 0 && (
+                                            <span className="px-2 py-1 rounded-lg bg-rose-500/10 text-rose-400 text-[8px] font-black uppercase border border-rose-500/20 ml-2 animate-pulse">Low Stock</span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
 
                             {/* Product Description */}
                             <div className="space-y-4">
-                                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Product Description</p>
-                                <div className="p-4 rounded-[1.5rem] bg-white/[0.02] border border-white/5">
-                                    <div className="text-[11px] text-slate-400 leading-relaxed font-medium">
-                                        {renderSafe(parseJsonField(selectedProduct.description), "No description provided.")}
+                                <div className="flex items-center gap-3">
+                                    <div className="h-px flex-1 bg-white/5"></div>
+                                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em]">Story & Details</p>
+                                    <div className="h-px flex-1 bg-white/5"></div>
+                                </div>
+                                <div className="p-6 rounded-[2rem] bg-white/[0.02] border border-white/5 shadow-inner">
+                                    <div className="text-xs text-slate-400 leading-relaxed font-medium">
+                                        {renderSafe(parseJsonField(selectedProduct.description), "No detailed description provided for this listing.")}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Product Configuration & Settings */}
-                            <div className="space-y-4">
-                                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Product Settings & Configuration</p>
-                                <div className="p-5 rounded-[1.5rem] bg-white/[0.02] border border-white/5 space-y-4">
-                                    <div className="flex justify-between items-center pb-4 border-b border-white/5">
-                                        <div>
-                                            <p className="text-[11px] font-bold text-white uppercase">Product Visibility</p>
-                                            <p className="text-[9px] text-slate-500 font-medium">Settings apply to all views</p>
-                                        </div>
-                                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 text-[9px] font-black text-slate-400 uppercase border border-white/5">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                                            Visible
-                                        </div>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <p className="text-[11px] font-bold text-white uppercase">Mini Preview</p>
-                                        <p className="text-[10px] font-black text-slate-500 uppercase">None</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Product Variants */}
+                            {/* Product Variants Section - REDESIGNED */}
                             {(() => {
                                 const vars = parseJsonField(selectedProduct.variants_data || selectedProduct.variants);
                                 if (!Array.isArray(vars) || vars.length === 0) return null;
                                 return (
-                                    <div className="space-y-4">
-                                        <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">Applied Variants Summary</p>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="space-y-6">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em]">Available Variants</p>
+                                            <span className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[8px] font-black uppercase border border-blue-500/20">{vars.length} Options</span>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             {vars.map((v, idx) => (
-                                                <div key={idx} className="p-4 rounded-[1.5rem] bg-white/[0.02] border border-white/5 flex items-center gap-4">
-                                                    <div className="w-10 h-10 rounded-xl bg-black border border-white/10 overflow-hidden shrink-0 flex items-center justify-center text-slate-700">
-                                                        {v.image_url ? (
-                                                            <img src={getPrimaryImage(v.image_url) || ''} alt="" className="w-full h-full object-cover" />
-                                                        ) : <IonIcon name="cube-outline" />}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-[10px] font-black text-white uppercase truncate">{v.uom || 'Variant'}</p>
-                                                        <div className="flex items-center gap-2 mt-1">
-                                                            <span className="text-[9px] text-slate-500 font-bold uppercase">{v.details || v.specific_details || '-'}</span>
-                                                            <span className="w-1 h-1 rounded-full bg-white/10"></span>
-                                                            <span className="text-[9px] text-emerald-400 font-black">{v.stock || v.in_stock || 0} IN STOCK</span>
+                                                <div key={idx} className="p-5 rounded-[2rem] bg-[#0f0f11] border border-white/5 flex flex-col gap-4 group/variant hover:border-blue-500/30 transition-all shadow-lg active:scale-[0.98]">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-14 h-14 rounded-2xl bg-black border border-white/10 overflow-hidden shrink-0 flex items-center justify-center relative shadow-inner">
+                                                            {v.image_url ? (
+                                                                <img src={getPrimaryImage(v.image_url) || ''} alt="" className="w-full h-full object-cover group-hover/variant:scale-110 transition-transform duration-500" />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center bg-white/5">
+                                                                    <IonIcon name="cube-outline" className="text-slate-700 text-xl" />
+                                                                </div>
+                                                            )}
+                                                            <div className="absolute inset-0 bg-blue-500/0 group-hover/variant:bg-blue-500/10 transition-colors"></div>
                                                         </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <p className="text-[11px] font-black text-white uppercase truncate tracking-tight">{v.color || v.uom || 'Variant'}</p>
+                                                                {v.promo_price && <span className="text-[10px] font-black text-blue-400">R {parseFloat(v.promo_price).toLocaleString()}</span>}
+                                                            </div>
+                                                            
+                                                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                                                {/* Display UOM and Sizes specifically if present */}
+                                                                {v.selections && Array.isArray(v.selections) ? v.selections.map((s: any, sIdx: number) => (
+                                                                    <div key={sIdx} className="px-2 py-0.5 rounded-md bg-white/5 border border-white/5 text-[8px] font-black text-slate-400 uppercase tracking-tighter">
+                                                                        {s.isUOM ? 'UOM:' : 'SIZE:'} {s.value}
+                                                                    </div>
+                                                                )) : (
+                                                                    <span className="text-[9px] text-slate-500 font-bold uppercase">{v.uom || v.details || v.specific_details || 'Standard'}</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center justify-between pt-3 border-t border-white/5">
+                                                        <div className="flex -space-x-1.5 overflow-hidden">
+                                                            {v.selections && Array.isArray(v.selections) && v.selections.slice(0, 3).map((s: any, sIdx: number) => (
+                                                                <div key={sIdx} className="w-5 h-5 rounded-full bg-white/10 border-2 border-[#0f0f11] flex items-center justify-center text-[7px] font-black text-white uppercase">
+                                                                    {s.value.charAt(0)}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <span className={`text-[9px] font-black uppercase tracking-widest ${parseInt(v.stock || v.in_stock || 0) > 0 ? 'text-emerald-400/80 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'text-rose-400/80'}`}>
+                                                            {v.stock || v.in_stock || 0} IN STOCK
+                                                        </span>
                                                     </div>
                                                 </div>
                                             ))}
