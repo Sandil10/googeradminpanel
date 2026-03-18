@@ -15,7 +15,11 @@ interface User {
   status: string;
 }
 
-export default function AllUsersPage() {
+interface UsersTableProps {
+  userTypeFilter?: 'User' | 'Seller' | 'Employee';
+}
+
+export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,12 +55,16 @@ export default function AllUsersPage() {
     };
 
     loadInitialData();
-  }, []);
+  }, [userTypeFilter]);
 
   const totalUserBalance = users.reduce((sum, user) => sum + parseFloat(user.wallet_balance || '0'), 0);
-  const googerBalance = stats?.googer_balance || "50,000.00"; // Fallback or mock if not in stats
+  const googerBalance = stats?.googer_balance || "50,000.00";
 
-  const filteredUsers = users.filter(user => {
+  const typeFilteredUsers = userTypeFilter 
+    ? users.filter(user => user.user_type === userTypeFilter)
+    : users;
+
+  const filteredUsers = typeFilteredUsers.filter(user => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return (
@@ -80,8 +88,14 @@ export default function AllUsersPage() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">User Management</h1>
-          <p className="text-slate-400 text-sm font-medium">Manage and view all registered users in the ecosystem.</p>
+          <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">
+            {userTypeFilter ? `${userTypeFilter}s Management` : "All Users Management"}
+          </h1>
+          <p className="text-slate-400 text-sm font-medium">
+            {userTypeFilter 
+              ? `Manage and view all registered ${userTypeFilter.toLowerCase()}s in the ecosystem.`
+              : "Manage and view all registered users in the ecosystem."}
+          </p>
         </div>
         <button 
           onClick={() => setShowAddModal(true)}
