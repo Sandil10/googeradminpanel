@@ -50,6 +50,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
+    const [searchTerm, setSearchTerm] = useState("");
 
     const cleanImageUrl = (url: string) => {
         if (!url) return '';
@@ -109,6 +110,18 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
     useEffect(() => {
         loadProducts();
     }, [statusFilter]);
+
+    const filteredProducts = products.filter(p => {
+        if (!searchTerm) return true;
+        const search = searchTerm.toLowerCase();
+        return (
+            p.id.toString().includes(search) ||
+            p.user_id.toLowerCase().includes(search) ||
+            (p.username && p.username.toLowerCase().includes(search)) ||
+            (p.seller_id && p.seller_id.toLowerCase().includes(search)) ||
+            (p.title && p.title.toLowerCase().includes(search))
+        );
+    });
 
     const handleAction = async (productId: number, status: string) => {
         try {
@@ -210,6 +223,27 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                     </div>
                 )}
                 
+                <div className="p-6 border-b border-[#1a1a1a] flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="relative flex-1 max-w-md group">
+                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
+                            <IonIcon name="search-outline" className="text-lg" />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Search PID, User ID, or Seller Name..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full bg-[#0c0c0e] border border-white/5 rounded-2xl py-3.5 pl-12 pr-4 text-xs font-medium text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/30 focus:ring-4 focus:ring-blue-500/5 transition-all"
+                        />
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filteredProducts.length} Results</span>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="w-full overflow-x-auto custom-scrollbar">
                     <table className="w-full text-left min-w-[800px]">
                         <thead>
@@ -220,14 +254,20 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-[#1a1a1a]">
-                            {products.length === 0 && !loading ? (
+                            {filteredProducts.length === 0 && !loading ? (
                                 <tr>
                                     <td colSpan={7} className="px-6 py-20 text-center text-slate-500 font-medium italic">
-                                        No products found in this category.
+                                        {searchTerm ? (
+                                            <div className="flex flex-col items-center gap-3">
+                                                <IonIcon name="search-outline" className="text-4xl text-slate-700" />
+                                                <p>No matches found for <span className="text-white">"{searchTerm}"</span></p>
+                                                <button onClick={() => setSearchTerm("")} className="text-blue-400 font-bold hover:underline">Clear Search</button>
+                                            </div>
+                                        ) : "No products found in this category."}
                                     </td>
                                 </tr>
                             ) : (
-                                products.map((product) => (
+                                filteredProducts.map((product) => (
                                     <tr key={product.id} className="hover:bg-white/[0.02] transition-all group border-b border-[#1a1a1a]">
                                         <td className="px-2 py-6">
                                             <div className="flex items-start gap-5">
@@ -295,30 +335,32 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                         </td>
                                         <td className="px-2 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2">
-                                                <button
-                                                    onClick={() => handleAction(product.id, 'active')}
-                                                    className={`h-8 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
-                                                        product.status === 'active' 
-                                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 cursor-default' 
-                                                        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                                                    }`}
-                                                    disabled={product.status === 'active'}
-                                                >
-                                                    <IonIcon name="checkmark-circle-outline" className="text-xs" />
-                                                    Approve
-                                                </button>
-                                                <button
-                                                    onClick={() => handleAction(product.id, 'rejected')}
-                                                    className={`h-8 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
-                                                        product.status === 'rejected'
-                                                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 cursor-default'
-                                                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
-                                                    }`}
-                                                    disabled={product.status === 'rejected'}
-                                                >
-                                                    <IonIcon name="ban-outline" className="text-xs" />
-                                                    Reject
-                                                </button>
+                                                {(statusFilter === 'reviewing' || statusFilter === 'review') ? (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleAction(product.id, 'active')}
+                                                            className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                        >
+                                                            <IonIcon name="checkmark-circle-outline" className="text-xs" />
+                                                            Approve
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleAction(product.id, 'rejected')}
+                                                            className="h-8 px-3 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-400 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+                                                        >
+                                                            <IonIcon name="ban-outline" className="text-xs" />
+                                                            Reject
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleAction(product.id, 'inactive')}
+                                                        className="h-8 px-3 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-400 text-[9px] font-black uppercase tracking-widest hover:bg-purple-500/20 transition-all flex items-center gap-1.5"
+                                                    >
+                                                        <IonIcon name="close-circle-outline" className="text-xs" />
+                                                        Inactive
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => handleAction(product.id, 'Delete')}
                                                     className="h-8 px-3 rounded-lg bg-white/5 text-slate-400 border border-white/10 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/20 transition-all flex items-center gap-1.5"
@@ -351,6 +393,20 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                 <div>
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Seller Profile</p>
                                     <p className="text-sm font-bold text-white">{selectedProduct.username}</p>
+                                </div>
+                            </div>
+                             <div className="flex items-center gap-4 flex-1 max-w-md mx-4">
+                                <div className="relative w-full group">
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
+                                        <IonIcon name="search-outline" className="text-sm" />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Search products..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-[11px] font-medium text-white focus:outline-none focus:border-blue-500/30 transition-all"
+                                    />
                                 </div>
                             </div>
                             <div className="flex items-center gap-4">
@@ -611,27 +667,42 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                         </div>
 
                         {/* Modal Footer Actions */}
-                        <div className="p-6 md:p-8 border-t border-white/5 flex gap-4 bg-black/20">
-                            <button 
-                                onClick={() => {
-                                    handleAction(selectedProduct.id, 'active');
-                                    setSelectedProduct(null);
-                                }}
-                                className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-emerald-500/20 flex items-center justify-center gap-3"
-                            >
-                                <IonIcon name="checkmark-circle-outline" className="text-lg" />
-                                Approve
-                            </button>
-                            <button 
-                                onClick={() => {
-                                    handleAction(selectedProduct.id, 'rejected');
-                                    setSelectedProduct(null);
-                                }}
-                                className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-rose-500/20 flex items-center justify-center gap-3"
-                            >
-                                <IonIcon name="ban-outline" className="text-lg" />
-                                Reject
-                            </button>
+                         <div className="p-6 md:p-8 border-t border-white/5 flex gap-4 bg-black/20">
+                            {(statusFilter === 'reviewing' || statusFilter === 'review') ? (
+                                <>
+                                    <button 
+                                        onClick={() => {
+                                            handleAction(selectedProduct.id, 'active');
+                                            setSelectedProduct(null);
+                                        }}
+                                        className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-emerald-500/20 flex items-center justify-center gap-3"
+                                    >
+                                        <IonIcon name="checkmark-circle-outline" className="text-lg" />
+                                        Approve
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            handleAction(selectedProduct.id, 'rejected');
+                                            setSelectedProduct(null);
+                                        }}
+                                        className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-rose-500/20 flex items-center justify-center gap-3"
+                                    >
+                                        <IonIcon name="ban-outline" className="text-lg" />
+                                        Reject
+                                    </button>
+                                </>
+                            ) : (
+                                <button 
+                                    onClick={() => {
+                                        handleAction(selectedProduct.id, 'inactive');
+                                        setSelectedProduct(null);
+                                    }}
+                                    className="flex-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-purple-500/20 flex items-center justify-center gap-3"
+                                >
+                                    <IonIcon name="close-circle-outline" className="text-lg" />
+                                    Inactive
+                                </button>
+                            )}
                             <button 
                                 onClick={() => {
                                     handleAction(selectedProduct.id, 'Delete');
