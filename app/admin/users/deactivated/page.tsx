@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { adminService } from '../../../services/adminService';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import IonIcon from "@/components/IonIcon";
 
 interface User {
@@ -19,6 +20,7 @@ interface User {
 }
 
 export default function DeactivatedUsersPage() {
+  const pathname = usePathname();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -157,10 +159,10 @@ export default function DeactivatedUsersPage() {
                               <IonIcon name="person-remove" />
                             </div>
                             <div>
-                              <Link href={`/admin/users/${user.id}`} className="font-bold text-white text-sm hover:text-blue-400 transition-colors block">
+                              <Link href={`/admin/users/${user.id}?returnTo=${pathname}&from=Deactivated`} className="font-bold text-white text-sm hover:text-blue-400 transition-colors block">
                                 {user.full_name}
                               </Link>
-                              <Link href={`/admin/users/${user.id}`} className="text-xs text-slate-500 italic hover:text-blue-400 transition-colors block">
+                              <Link href={`/admin/users/${user.id}?returnTo=${pathname}&from=Deactivated`} className="text-xs text-slate-500 italic hover:text-blue-400 transition-colors block">
                                 @{user.username}
                               </Link>
                             </div>

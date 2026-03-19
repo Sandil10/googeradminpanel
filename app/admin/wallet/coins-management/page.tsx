@@ -5,13 +5,14 @@ import Image from "next/image";
 import { walletService } from "@/services/walletService";
 import { authService } from "@/services/authService";
 import IonIcon from "@/components/IonIcon";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import SecurityVerificationModal from "@/components/SecurityVerificationModal";
 import ReceiptModal from "@/components/ReceiptModal";
 import Link from "next/link";
 
 export default function CoinsManagementPage() {
     const router = useRouter();
+    const pathname = usePathname();
     const [amount, setAmount] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -356,10 +357,10 @@ export default function CoinsManagementPage() {
                                             )}
                                         </div>
                                         <div>
-                                            <Link href={`/admin/users/${req.sender_id}`} className="text-sm font-bold text-white hover:text-blue-400 hover:underline transition-colors block">
+                                            <Link href={`/admin/users/${req.sender_id}?returnTo=${pathname}&from=Wallet`} className="text-sm font-bold text-white hover:text-blue-400 hover:underline transition-colors block">
                                                 {req.sender_full_name}
                                             </Link>
-                                            <Link href={`/admin/users/${req.sender_id}`} className="text-xs text-gray-400 hover:text-blue-400 transition-colors">
+                                            <Link href={`/admin/users/${req.sender_id}?returnTo=${pathname}&from=Wallet`} className="text-xs text-gray-400 hover:text-blue-400 transition-colors">
                                                 @{req.sender_username} is requesting
                                             </Link>
                                         </div>

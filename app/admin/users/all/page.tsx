@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import IonIcon from "../../../components/IonIcon";
 import { adminService } from "../../../services/adminService";
 
@@ -24,6 +24,7 @@ interface UsersTableProps {
 
 export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -323,7 +324,7 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <Link 
-                              href={`/admin/users/${user.id}`}
+                              href={`/admin/users/${user.id}?returnTo=${pathname}&from=Users`}
                               className="font-bold text-white text-sm hover:text-blue-400 transition-colors"
                             >
                               {user.full_name}

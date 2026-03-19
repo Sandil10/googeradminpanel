@@ -5,7 +5,7 @@ import Image from "next/image";
 import IonIcon from "@/components/IonIcon";
 import { adminService } from "@/services/adminService";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface Transaction {
   id: number;
@@ -43,6 +43,10 @@ interface UserProfile {
 
 export default function UserProfilePage({ params }: { params: Promise<{ userId: string }> }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get('returnTo');
+  const returnLabel = searchParams.get('from') || 'Back';
+  
   const { userId } = use(params);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -96,11 +100,11 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
       <div className="relative h-48 bg-[#1a1a1a] rounded-3xl overflow-hidden border border-white/5">
         <div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 via-transparent to-blue-600/20"></div>
         <button 
-            onClick={() => router.back()}
-            className="absolute top-6 left-6 flex items-center gap-2 text-xs font-bold text-white/50 hover:text-white transition-colors bg-black/50 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 active:scale-95"
+            onClick={() => returnTo ? router.push(returnTo) : router.back()}
+            className="absolute top-6 left-6 flex items-center gap-2 text-xs font-bold text-white/50 hover:text-white transition-colors bg-black/50 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 active:scale-95 z-20"
         >
             <IonIcon name="arrow-back" />
-            Go Back
+            {returnLabel === 'Products' ? 'Back to Products' : returnTo ? 'Go Back' : 'Go Back'}
         </button>
       </div>
 

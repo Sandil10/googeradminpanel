@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { authService } from '@/services/authService';
 import { walletService } from '@/services/walletService';
 import Link from 'next/link';
@@ -14,6 +14,7 @@ import { generateTransactionReceipt } from '@/utils/pdfGenerator';
 
 export default function MyWallet() {
     const router = useRouter();
+    const pathname = usePathname();
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('wallet');
     const [user, setUser] = useState<any>(null);
@@ -448,7 +449,7 @@ export default function MyWallet() {
                                                     <div className="flex justify-between items-center mb-0.5">
                                                         <h5 className="font-bold text-white text-sm">
                                                             {tx.type === 'request' ? (isSent ? 'Requested From: ' : 'Requested By: ') : (isSent ? 'Sent To: ' : 'Received From: ')}
-                                                            <Link href={`/admin/users/${isSent ? tx.receiver_id : tx.sender_id}`} className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
+                                                            <Link href={`/admin/users/${isSent ? tx.receiver_id : tx.sender_id}?returnTo=${pathname}&from=Wallet`} className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
                                                                 @{otherUser}
                                                             </Link>
                                                         </h5>
@@ -520,7 +521,7 @@ export default function MyWallet() {
                                                 <div className="min-w-0">
                                                     <h5 className="font-bold text-white text-sm tracking-tight mb-0.5">
                                                         Request from{' '}
-                                                        <Link href={`/admin/users/${req.sender_id}`} className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
+                                                        <Link href={`/admin/users/${req.sender_id}?returnTo=${pathname}&from=Wallet`} className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
                                                             @{req.sender_username}
                                                         </Link>
                                                     </h5>
