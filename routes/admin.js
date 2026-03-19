@@ -74,4 +74,22 @@ router.post('/transfer-googer-to-admin', async (req, res) => {
     }
 });
 
+router.get('/all-transactions', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT t.*, 
+                   s.username as sender_username, s.full_name as sender_full_name, s.user_id as sender_readable_id,
+                   r.username as receiver_username, r.full_name as receiver_full_name, r.user_id as receiver_readable_id
+            FROM wallet_transfers t
+            LEFT JOIN users s ON t.sender_id = s.id
+            LEFT JOIN users r ON t.receiver_id = r.id
+            ORDER BY t.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send(err.message);
+    }
+});
+
 module.exports = router;

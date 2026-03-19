@@ -35,6 +35,7 @@ const menuItems = [
     { name: "Subscription", icon: "card", href: "/admin/subscription" },
     { name: "Top-up / Requests", icon: "cash", href: "/admin/wallet/topup" },
     { name: "Wallet", icon: "wallet", href: "/admin/wallet/main" },
+    { name: "All Transactions", icon: "receipt", href: "/admin/transactions" },
 ];
 
 interface SidebarProps {

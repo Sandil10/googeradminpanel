@@ -176,5 +176,14 @@ export const adminService = {
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch transactions');
         return result;
+    },
+
+    fetchAllTransactions: async () => {
+        const response = await fetch(`${API_URL}/admin/all-transactions`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch all transactions');
+        return result;
     }
 };
