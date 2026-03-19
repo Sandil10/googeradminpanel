@@ -8,6 +8,17 @@ router.get('/all', async (req, res) => {
     const result = await pool.query("SELECT * FROM users WHERE marked_for_deletion_at IS NULL ORDER BY created_at DESC");
     res.json(result.rows);
   } catch (err) {
+    // If the marked_for_deletion_at column doesn't exist yet (Vercel production DB missing it)
+    if (err.code === '42703') {
+      try {
+        console.log("Auto-adding missing column 'marked_for_deletion_at' on the fly...");
+        await pool.query("ALTER TABLE users ADD COLUMN marked_for_deletion_at TIMESTAMP DEFAULT NULL");
+        const retryResult = await pool.query("SELECT * FROM users WHERE marked_for_deletion_at IS NULL ORDER BY created_at DESC");
+        return res.json(retryResult.rows);
+      } catch (retryErr) {
+        console.error("Migration fallback failed:", retryErr);
+      }
+    }
     console.error(err);
     res.status(500).send(err.message);
   }
@@ -19,6 +30,16 @@ router.get('/deactivated', async (req, res) => {
     const result = await pool.query("SELECT * FROM users WHERE marked_for_deletion_at IS NOT NULL OR status = 'Deactivated' ORDER BY marked_for_deletion_at DESC, created_at DESC");
     res.json(result.rows);
   } catch (err) {
+    if (err.code === '42703') {
+      try {
+        console.log("Auto-adding missing column 'marked_for_deletion_at' on the fly...");
+        await pool.query("ALTER TABLE users ADD COLUMN marked_for_deletion_at TIMESTAMP DEFAULT NULL");
+        const retryResult = await pool.query("SELECT * FROM users WHERE marked_for_deletion_at IS NOT NULL OR status = 'Deactivated' ORDER BY marked_for_deletion_at DESC, created_at DESC");
+        return res.json(retryResult.rows);
+      } catch (retryErr) {
+        console.error("Migration fallback failed:", retryErr);
+      }
+    }
     console.error(err);
     res.status(500).send(err.message);
   }
