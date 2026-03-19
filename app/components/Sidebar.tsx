@@ -16,6 +16,7 @@ const menuItems = [
             { name: "All Users", href: "/admin/users/all" },
             { name: "Sellers", href: "/admin/users/sellers" },
             { name: "Employees", href: "/admin/users/employees" },
+            { name: "Deactivated Users", href: "/admin/users/deactivated" },
         ]
     },
     { 
@@ -33,6 +34,7 @@ const menuItems = [
     { name: "Verification", icon: "checkmark-circle", href: "/admin/verification" },
     { name: "Subscription", icon: "card", href: "/admin/subscription" },
     { name: "Top-up / Requests", icon: "cash", href: "/admin/wallet/topup" },
+    { name: "Wallet", icon: "wallet", href: "/admin/wallet/main" },
 ];
 
 interface SidebarProps {

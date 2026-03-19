@@ -11,6 +11,7 @@ router.post('/request', walletController.initiateTransferRequest);
 router.get('/pending-requests', walletController.getPendingRequests);
 router.post('/respond', walletController.respondToRequest);
 router.post('/transfer', walletController.directTransfer);
+router.post('/transfer-googer', walletController.transferToGooger);
 router.get('/history', walletController.getTransactionHistory);
 
 module.exports = router;

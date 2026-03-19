@@ -207,7 +207,7 @@ exports.login = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Please provide email and password' });
         }
 
-        const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        const user = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $1', [email]);
 
         if (user.rows.length === 0) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });

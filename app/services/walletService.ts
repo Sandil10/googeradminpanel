@@ -77,6 +77,17 @@ export const walletService = {
         return result;
     },
 
+    transferToGooger: async (amount: number, note: string = '') => {
+        const response = await fetch(`${API_URL}/wallet/transfer-googer`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ amount, note })
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Transfer to Googer Balance failed');
+        return result;
+    },
+
     getTransactionHistory: async () => {
         const response = await fetch(`${API_URL}/wallet/history`, {
             headers: getHeaders()

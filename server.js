@@ -26,6 +26,20 @@ pool.query('SELECT NOW()', (err, res) => {
         console.error('❌ Database connection error:', err);
     } else {
         console.log('✅ Database connected at:', res.rows[0].now);
+        // Start background worker to cleanup deactivated users (Run every hour)
+        setInterval(async () => {
+            try {
+                console.log("🧹 Running background cleanup for deactivated users...");
+                const result = await pool.query(
+                    "DELETE FROM users WHERE marked_for_deletion_at < NOW() - INTERVAL '7 days'"
+                );
+                if (result.rowCount > 0) {
+                    console.log(`🗑️ Permanently deleted ${result.rowCount} user(s) after 7-day deactivation period.`);
+                }
+            } catch (err) {
+                console.error("❌ Cleanup error:", err.message);
+            }
+        }, 1000 * 60 * 60);
     }
 });
 

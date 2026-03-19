@@ -56,6 +56,35 @@ export const adminService = {
         return result;
     },
 
+    fetchDeactivatedUsers: async () => {
+        const response = await fetch(`${API_URL}/users/deactivated`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch deactivated users');
+        return result;
+    },
+
+    softDeleteUser: async (id: string) => {
+        const response = await fetch(`${API_URL}/users/${id}`, {
+            method: 'DELETE',
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to mark user for deletion');
+        return result;
+    },
+
+    restoreUser: async (id: string) => {
+        const response = await fetch(`${API_URL}/users/${id}/restore`, {
+            method: 'POST',
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to restore user');
+        return result;
+    },
+
     // Product Management
     fetchAllProducts: async (status?: string) => {
         const url = status ? `${API_URL}/products/all?status=${status}` : `${API_URL}/products/all`;
@@ -116,6 +145,26 @@ export const adminService = {
         });
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch stats');
+        return result;
+    },
+
+    transferGoogerToAdmin: async (adminId: number, amount: number) => {
+        const response = await fetch(`${API_URL}/admin/transfer-googer-to-admin`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ adminId, amount })
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to transfer to admin');
+        return result;
+    },
+    
+    fetchUserTransactions: async (id: string) => {
+        const response = await fetch(`${API_URL}/users/${id}/transactions`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch transactions');
         return result;
     }
 };

@@ -406,7 +406,9 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                         </td>
                                         <td className="px-2 py-4">
                                             <div className="flex flex-col">
-                                                <span className="text-white font-bold text-sm tracking-tight">{renderSafe(product.username) || 'Unknown'}</span>
+                                                <Link href={`/admin/users/${product.user_id}`} className="text-white hover:text-blue-400 font-bold text-sm tracking-tight transition-colors">
+                                                    {renderSafe(product.username) || 'Unknown'}
+                                                </Link>
                                                 <span className="text-[10px] text-slate-400 font-mono uppercase tracking-widest mt-1">ID: {product.seller_id || product.user_id}</span>
                                             </div>
                                         </td>
@@ -477,7 +479,9 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Seller Profile</p>
-                                    <p className="text-sm font-bold text-white">{selectedProduct.username}</p>
+                                    <Link href={`/admin/users/${selectedProduct.user_id}`} className="text-sm font-bold text-white hover:text-blue-400 hover:underline transition-colors mt-0.5 inline-block">
+                                        {selectedProduct.username}
+                                    </Link>
                                 </div>
                             </div>
                              <div className="flex-1"></div>

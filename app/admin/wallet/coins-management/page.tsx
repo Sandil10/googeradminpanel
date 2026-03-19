@@ -8,6 +8,7 @@ import IonIcon from "@/components/IonIcon";
 import { useRouter } from "next/navigation";
 import SecurityVerificationModal from "@/components/SecurityVerificationModal";
 import ReceiptModal from "@/components/ReceiptModal";
+import Link from "next/link";
 
 export default function CoinsManagementPage() {
     const router = useRouter();
@@ -278,7 +279,15 @@ export default function CoinsManagementPage() {
                                         <div className="flex-1">
                                             <p className="text-sm font-bold text-white flex items-center justify-between">
                                                 {user.full_name}
-                                                <span className="text-[10px] bg-white/5 px-2 py-0.5 rounded text-blue-400 capitalize">{user.user_type}</span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded capitalize ${
+                                                    user.user_type?.toLowerCase() === 'admin' ? 'bg-orange-500/10 text-orange-400' :
+                                                    user.user_type?.toLowerCase() === 'seller' ? 'bg-amber-500/10 text-amber-500' :
+                                                    'bg-white/5 text-blue-400'
+                                                }`}>
+                                                    {user.user_type?.toLowerCase() === 'admin' ? 'Admin' : 
+                                                     user.user_type?.toLowerCase() === 'seller' ? 'Seller' :
+                                                     user.user_type?.toLowerCase() === 'employee' ? 'Employee' : 'User'}
+                                                </span>
                                             </p>
                                             <p className="text-xs text-gray-400">@{user.username} • ID: {user.user_id}</p>
                                         </div>
@@ -347,8 +356,12 @@ export default function CoinsManagementPage() {
                                             )}
                                         </div>
                                         <div>
-                                            <p className="text-sm font-bold text-white">{req.sender_full_name}</p>
-                                            <p className="text-xs text-gray-400">@{req.sender_username} is requesting</p>
+                                            <Link href={`/admin/users/${req.sender_id}`} className="text-sm font-bold text-white hover:text-blue-400 hover:underline transition-colors block">
+                                                {req.sender_full_name}
+                                            </Link>
+                                            <Link href={`/admin/users/${req.sender_id}`} className="text-xs text-gray-400 hover:text-blue-400 transition-colors">
+                                                @{req.sender_username} is requesting
+                                            </Link>
                                         </div>
                                     </div>
                                     <div className="text-right">

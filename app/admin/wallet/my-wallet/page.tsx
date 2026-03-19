@@ -390,8 +390,14 @@ export default function MyWallet() {
                                                         <p className="text-white font-bold text-sm uppercase">{s.username}</p>
                                                         <p className="text-[10px] text-gray-400 font-medium">ID: {s.user_id} • {s.full_name}</p>
                                                     </div>
-                                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${s.user_type === 'seller' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-400'}`}>
-                                                        {s.user_type}
+                                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${
+                                                        s.user_type?.toLowerCase() === 'admin' ? 'bg-orange-500/10 text-orange-400' :
+                                                        s.user_type?.toLowerCase() === 'seller' ? 'bg-amber-500/10 text-amber-500' : 
+                                                        'bg-blue-500/10 text-blue-400'
+                                                    }`}>
+                                                        {s.user_type?.toLowerCase() === 'admin' ? 'Admin' : 
+                                                         s.user_type?.toLowerCase() === 'seller' ? 'Seller' :
+                                                         s.user_type?.toLowerCase() === 'employee' ? 'Employee' : 'User'}
                                                     </span>
                                                 </button>
                                             ))}
@@ -442,7 +448,9 @@ export default function MyWallet() {
                                                     <div className="flex justify-between items-center mb-0.5">
                                                         <h5 className="font-bold text-white text-sm">
                                                             {tx.type === 'request' ? (isSent ? 'Requested From: ' : 'Requested By: ') : (isSent ? 'Sent To: ' : 'Received From: ')}
-                                                            <span className="text-blue-400">@{otherUser}</span>
+                                                            <Link href={`/admin/users/${isSent ? tx.receiver_id : tx.sender_id}`} className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
+                                                                @{otherUser}
+                                                            </Link>
                                                         </h5>
                                                         <span className={`text-sm font-bold tracking-tight ${isSent ? 'text-red-400' : 'text-green-400'}`}>
                                                             {isSent ? (tx.type === 'request' ? '' : '-') : '+'} R {parseFloat(tx.amount).toFixed(2)}
@@ -511,7 +519,10 @@ export default function MyWallet() {
                                                 </div>
                                                 <div className="min-w-0">
                                                     <h5 className="font-bold text-white text-sm tracking-tight mb-0.5">
-                                                        Request from <span className="text-blue-400">@{req.sender_username}</span>
+                                                        Request from{' '}
+                                                        <Link href={`/admin/users/${req.sender_id}`} className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
+                                                            @{req.sender_username}
+                                                        </Link>
                                                     </h5>
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{new Date(req.created_at).toLocaleDateString()}</span>
@@ -588,8 +599,12 @@ export default function MyWallet() {
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-xs font-bold text-white uppercase tracking-wider">{ref.referred_full_name}</div>
-                                                        <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-widest">@{ref.referred_username}</div>
+                                                        <Link href={`/admin/users/${ref.referred_user_id || ref.id}`} className="text-xs font-bold text-white uppercase tracking-wider hover:text-blue-400 transition-colors block">
+                                                            {ref.referred_full_name}
+                                                        </Link>
+                                                        <Link href={`/admin/users/${ref.referred_user_id || ref.id}`} className="text-[9px] text-gray-500 font-semibold uppercase tracking-widest hover:text-blue-400 transition-colors">
+                                                            @{ref.referred_username}
+                                                        </Link>
                                                     </div>
                                                 </div>
                                                 <div className="text-right">
@@ -666,9 +681,12 @@ export default function MyWallet() {
                                                     <IonIcon name={isSent ? 'arrow-up-outline' : 'arrow-down-outline'} />
                                                 </div>
                                                 <div className="text-left">
-                                                    <p className="text-[10px] font-bold text-white truncate max-w-[120px]">
+                                                    <Link 
+                                                        href={`/admin/users/${isSent ? tx.receiver_id : tx.sender_id}`}
+                                                        className="text-[10px] font-bold text-white truncate max-w-[120px] hover:text-blue-400 hover:underline transition-colors block"
+                                                    >
                                                         @{isSent ? tx.receiver_username : tx.sender_username}
-                                                    </p>
+                                                    </Link>
                                                     <p className="text-[8px] text-gray-500 font-medium" suppressHydrationWarning>{new Date(tx.created_at).toLocaleDateString()}</p>
                                                 </div>
                                             </div>

@@ -243,8 +243,7 @@ exports.respondToRequest = async (req, res) => {
                 // Sender gets back: 10 (commission)
 
                 const commission = parseFloat(transfer.commission || 0);
-                const amountToReceiver = transferAmount - commission; // 90
-                const amountBackToSender = commission; // 10
+                const amountToReceiver = transferAmount - commission; 
 
                 // Remove full amount from sender's hold_balance
                 await client.query(
@@ -258,13 +257,9 @@ exports.respondToRequest = async (req, res) => {
                     [amountToReceiver, userId]
                 );
 
-                // Return commission to sender's wallet
-                if (commission > 0) {
-                    await client.query(
-                        'UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2',
-                        [amountBackToSender, transfer.sender_id]
-                    );
-                }
+                // For 'sell' type transactions, Googer keeps the commission.
+                // Since total money deducted was transferAmount and receiver only got amountToReceiver,
+                // the difference (commission) is now part of the system's googer_balance (sum of commissions).
             } else {
                 // For 'request' (buy): Deduct from receiver and give to sender
                 // Check receiver's balance first
@@ -335,14 +330,19 @@ exports.directTransfer = async (req, res) => {
         let commInput = parseFloat(commissionPercentage || 0);
         let finalTransferAmount = 0;
         let calculatedCommission = 0;
+        let amountToDeduct = 0;
 
         if (commInput > 0) {
-            // If commission is entered, transfer ONLY the commission amount
+            // Case: Commission is being charged on the transfer
             calculatedCommission = (baseAmount * commInput) / 100;
-            finalTransferAmount = calculatedCommission;
+            finalTransferAmount = baseAmount - calculatedCommission;
+            // The sender pays baseAmount, the receiver gets finalTransferAmount, 
+            // and Googer gets calculatedCommission.
+            amountToDeduct = baseAmount;
         } else {
             // Normal transfer of the base amount
             finalTransferAmount = baseAmount;
+            amountToDeduct = baseAmount;
         }
 
         if (finalTransferAmount <= 0) {
@@ -363,7 +363,7 @@ exports.directTransfer = async (req, res) => {
         // Deduct from sender
         await client.query(
             'UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2',
-            [finalTransferAmount, senderId]
+            [amountToDeduct, senderId]
         );
 
         // Add to receiver
@@ -396,6 +396,56 @@ exports.directTransfer = async (req, res) => {
         client.release();
     }
 };
+// Transfer to Main Googer Balance
+exports.transferToGooger = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { amount, note } = req.body;
+        const senderId = req.user.id;
+        const transferAmount = parseFloat(amount);
+
+        if (!transferAmount || transferAmount <= 0) {
+            return res.status(400).json({ success: false, message: 'Invalid amount' });
+        }
+
+        await client.query('BEGIN');
+
+        // Check sender balance
+        const sender = await client.query('SELECT wallet_balance FROM users WHERE id = $1', [senderId]);
+        const balance = parseFloat(sender.rows[0].wallet_balance);
+
+        if (balance < transferAmount) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: 'Insufficient balance' });
+        }
+
+        // Deduct from sender
+        await client.query(
+            'UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2',
+            [transferAmount, senderId]
+        );
+
+        // Add to Googer Balance by recording the amount as commission
+        const txNote = note || 'Transfer to Main Googer Balance';
+
+        await client.query(
+            `INSERT INTO wallet_transfers (sender_id, receiver_id, amount, note, type, status, commission, commission_percentage)
+             VALUES ($1, $1, 0, $2, 'system_topup', 'accepted', $3, 100)`,
+            [senderId, txNote, transferAmount]
+        );
+
+        await client.query('COMMIT');
+        res.status(200).json({ success: true, message: 'Transferred to Main Googer Balance successfully', transferAmount });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Transfer to Googer error:', error);
+        res.status(500).json({ success: false, message: 'Server error processing transfer' });
+    } finally {
+        client.release();
+    }
+};
+
 // Get transaction history for current user
 exports.getTransactionHistory = async (req, res) => {
     try {
