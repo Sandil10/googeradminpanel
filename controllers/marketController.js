@@ -241,16 +241,12 @@ exports.getMarketItems = async (req, res) => {
     try {
         const { category, user_id, status } = req.query;
         let query = `SELECT m.*, 
-                            COALESCE(u.id, CASE WHEN m.user_id ~ '^[0-9]+$' THEN m.user_id::integer ELSE NULL END) as user_id,
+                            COALESCE(u.id, m.user_id) as user_id,
                             COALESCE(u.user_id, m.owner_user_id) as seller_id,
                             COALESCE(u.username, m.username) as owner_username, 
                             u.profile_picture 
                      FROM market m 
-                     LEFT JOIN users u ON (
-                        (m.user_id ~ '^[0-9]+$' AND m.user_id::integer = u.id) OR 
-                        (m.user_id = u.user_id) OR
-                        (m.owner_user_id = u.user_id)
-                     ) 
+                     LEFT JOIN users u ON (m.user_id = u.id OR m.owner_user_id = u.user_id) 
                      WHERE 1=1`;
         const params = [];
 
@@ -292,16 +288,12 @@ exports.getMarketItemById = async (req, res) => {
         const { id } = req.params;
         const result = await pool.query(
             `SELECT m.*, 
-                    COALESCE(u.id, CASE WHEN m.user_id ~ '^[0-9]+$' THEN m.user_id::integer ELSE NULL END) as user_id,
+                    COALESCE(u.id, m.user_id) as user_id,
                     COALESCE(u.user_id, m.owner_user_id) as seller_id,
                     COALESCE(u.username, m.username) as owner_username, 
                     u.profile_picture 
              FROM market m 
-             LEFT JOIN users u ON (
-                (m.user_id ~ '^[0-9]+$' AND m.user_id::integer = u.id) OR 
-                (m.user_id = u.user_id) OR
-                (m.owner_user_id = u.user_id)
-             ) 
+             LEFT JOIN users u ON (m.user_id = u.id OR m.owner_user_id = u.user_id) 
              WHERE m.id = $1`,
             [id]
         );
