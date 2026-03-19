@@ -57,6 +57,10 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
+  const [showAllTransactions, setShowAllTransactions] = useState(false);
+  const [txSearchTerm, setTxSearchTerm] = useState("");
+  const [txPage, setTxPage] = useState(1);
+  const txPerPage = 10;
 
   useEffect(() => {
     const loadUser = async () => {
@@ -214,8 +218,17 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
                 <h2 className="text-2xl font-black text-white tracking-tight">Transaction History</h2>
                 <p className="text-slate-500 text-xs font-medium uppercase tracking-widest">Recent financial activities</p>
             </div>
-            <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-bold text-slate-400">
-                {transactions.length} Transactions
+            <div className="flex items-center gap-3">
+                <button 
+                    onClick={() => setShowAllTransactions(true)}
+                    className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all active:scale-95 flex items-center gap-2"
+                >
+                    <IonIcon name="list-outline" />
+                    All Transactions
+                </button>
+                <div className="px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[10px] font-bold text-slate-400">
+                    {transactions.length} Transactions
+                </div>
             </div>
         </div>
 
@@ -340,6 +353,154 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
                     >
                         Close Details
                     </button>
+                </div>
+            </div>
+        </div>
+      )}
+      {/* All Transactions Modal */}
+      {showAllTransactions && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-[#09090b] border border-white/10 w-full max-w-5xl rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+                {/* Modal Header */}
+                <div className="p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div>
+                        <h3 className="text-2xl font-black text-white tracking-tight">Full Transaction Audit</h3>
+                        <p className="text-xs text-slate-500 font-medium uppercase tracking-widest mt-1">Complete history for {user.full_name}</p>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                        <div className="relative flex-1 md:w-80">
+                            <IonIcon name="search-outline" className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg" />
+                            <input 
+                                type="text"
+                                placeholder="Search by ID or Participant..."
+                                value={txSearchTerm}
+                                onChange={(e) => { setTxSearchTerm(e.target.value); setTxPage(1); }}
+                                className="w-full bg-black border border-white/10 rounded-2xl py-3 px-12 text-xs font-medium text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/30 transition-all"
+                            />
+                        </div>
+                        <button 
+                            onClick={() => setShowAllTransactions(false)}
+                            className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-white hover:bg-white/10 transition-colors border border-white/10"
+                        >
+                            <IonIcon name="close" className="text-xl" />
+                        </button>
+                    </div>
+                </div>
+                
+                {/* Modal Body - Scrollable Table */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                    {(() => {
+                        const filtered = transactions.filter(tx => {
+                            if (!txSearchTerm) return true;
+                            const search = txSearchTerm.toLowerCase();
+                            const otherUser = tx.receiver_id === user.id ? tx.sender_username : tx.receiver_username;
+                            return tx.id.toString().includes(search) || 
+                                   (otherUser || '').toLowerCase().includes(search);
+                        });
+                        
+                        const totalTxPages = Math.ceil(filtered.length / txPerPage);
+                        const startIndex = (txPage - 1) * txPerPage;
+                        const paginated = filtered.slice(startIndex, startIndex + txPerPage);
+                        
+                        return (
+                            <div className="space-y-6">
+                                <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-500 bg-white/[0.02]">
+                                                <th className="px-6 py-4">TX ID</th>
+                                                <th className="px-6 py-4">Participant</th>
+                                                <th className="px-6 py-4 text-center">Type</th>
+                                                <th className="px-6 py-4 text-center">Status</th>
+                                                <th className="px-6 py-4 text-right">Amount</th>
+                                                <th className="px-6 py-4 text-right">Date & Time</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {paginated.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={6} className="px-6 py-20 text-center text-slate-500 font-bold uppercase tracking-widest text-[10px]">No matches found</td>
+                                                </tr>
+                                            ) : (
+                                                paginated.map((tx) => {
+                                                    const isReceived = tx.receiver_id === user.id;
+                                                    const otherUser = isReceived ? tx.sender_username : tx.receiver_username;
+                                                    const otherUserId = isReceived ? tx.sender_id : tx.receiver_id;
+                                                    
+                                                    return (
+                                                        <tr key={tx.id} className="hover:bg-white/[0.01] transition-colors group">
+                                                            <td className="px-6 py-4 text-xs font-black text-slate-600">#{tx.id}</td>
+                                                            <td className="px-6 py-4">
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-0.5">{isReceived ? 'From' : 'To'}</span>
+                                                                    <Link href={`/admin/users/${otherUserId}?returnTo=${pathname}&from=User_Audit`} className="text-xs font-bold text-blue-400 hover:underline">
+                                                                        @{otherUser || 'System'}
+                                                                    </Link>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-center">
+                                                                <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded ${
+                                                                    tx.type === 'transfer' ? 'text-blue-400 bg-blue-400/10' :
+                                                                    tx.type === 'request' ? 'text-purple-400 bg-purple-400/10' :
+                                                                    'text-emerald-400 bg-emerald-400/10'
+                                                                }`}>
+                                                                    {tx.type}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-center">
+                                                                <span className={`text-[9px] uppercase font-bold ${isReceived ? 'text-green-500' : 'text-slate-400'}`}>
+                                                                    {tx.status}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-right">
+                                                                <div className={`text-sm font-black ${isReceived ? 'text-green-400' : 'text-red-400'}`}>
+                                                                    {isReceived ? '+' : '-'} R {parseFloat(tx.amount).toFixed(2)}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-right">
+                                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                                                    {new Date(tx.created_at).toLocaleDateString()}
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-600">
+                                                                    {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Modal Pagination */}
+                                {totalTxPages > 1 && (
+                                    <div className="flex items-center justify-between px-2">
+                                        <p className="text-[9px] text-slate-600 font-black uppercase tracking-widest">
+                                            Page {txPage} of {totalTxPages}
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => setTxPage(Math.max(1, txPage - 1))}
+                                                disabled={txPage === 1}
+                                                className="w-10 h-10 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center text-white hover:bg-white/10 disabled:opacity-30 transition-all"
+                                            >
+                                                <IonIcon name="chevron-back" />
+                                            </button>
+                                            <button 
+                                                onClick={() => setTxPage(Math.min(totalTxPages, txPage + 1))}
+                                                disabled={txPage === totalTxPages}
+                                                className="w-10 h-10 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center text-white hover:bg-white/10 disabled:opacity-30 transition-all"
+                                            >
+                                                <IonIcon name="chevron-forward" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </div>
             </div>
         </div>

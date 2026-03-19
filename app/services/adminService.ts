@@ -1,5 +1,5 @@
 const isClient = typeof window !== 'undefined';
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ||
     (isClient && window.location.hostname !== 'localhost' ? '/api' : 'http://localhost:5000/api');
 
 const storage = {
@@ -168,22 +168,13 @@ export const adminService = {
         if (!response.ok) throw new Error(result?.message || 'Failed to transfer to admin');
         return result;
     },
-    
+
     fetchUserTransactions: async (id: string) => {
         const response = await fetch(`${API_URL}/users/${id}/transactions`, {
             headers: getHeaders()
         });
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch transactions');
-        return result;
-    },
-
-    fetchAllTransactions: async () => {
-        const response = await fetch(`${API_URL}/admin/all-transactions`, {
-            headers: getHeaders()
-        });
-        const result = await safeJson(response);
-        if (!response.ok) throw new Error(result?.message || 'Failed to fetch all transactions');
         return result;
     }
 };

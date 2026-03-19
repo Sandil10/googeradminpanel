@@ -9,7 +9,7 @@ router.get('/stats', async (req, res) => {
         const pendingProducts = await pool.query("SELECT COUNT(*) FROM market WHERE status = 'pending' OR status = 'reviewing'");
         const totalBalance = await pool.query("SELECT SUM(wallet_balance) FROM users");
         const commissions = await pool.query("SELECT SUM(commission) FROM wallet_transfers WHERE status = 'accepted'");
-        
+
         res.json({
             totalUsers: usersCount.rows[0].count,
             activeSellers: sellersCount.rows[0].count,
@@ -28,7 +28,7 @@ router.post('/transfer-googer-to-admin', async (req, res) => {
     try {
         const { adminId, amount } = req.body;
         const transferAmount = parseFloat(amount);
-        
+
         if (!adminId || !transferAmount || transferAmount <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid admin ID or amount' });
         }
@@ -71,24 +71,6 @@ router.post('/transfer-googer-to-admin', async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error processing transfer' });
     } finally {
         client.release();
-    }
-});
-
-router.get('/all-transactions', async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT t.*, 
-                   s.username as sender_username, s.full_name as sender_full_name, s.user_id as sender_readable_id,
-                   r.username as receiver_username, r.full_name as receiver_full_name, r.user_id as receiver_readable_id
-            FROM wallet_transfers t
-            LEFT JOIN users s ON t.sender_id = s.id
-            LEFT JOIN users r ON t.receiver_id = r.id
-            ORDER BY t.created_at DESC
-        `);
-        res.json(result.rows);
-    } catch (err) {
-        console.error(err);
-        res.status(500).send(err.message);
     }
 });
 

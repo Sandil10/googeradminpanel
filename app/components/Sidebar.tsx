@@ -9,9 +9,9 @@ import IonIcon from "./IonIcon";
 
 const menuItems = [
     { name: "Dashboard", icon: "grid", href: "/admin" },
-    { 
-        name: "Users", 
-        icon: "people", 
+    {
+        name: "Users",
+        icon: "people",
         children: [
             { name: "All Users", href: "/admin/users/all" },
             { name: "Sellers", href: "/admin/users/sellers" },
@@ -19,9 +19,9 @@ const menuItems = [
             { name: "Deactivated Users", href: "/admin/users/deactivated" },
         ]
     },
-    { 
-        name: "Products", 
-        icon: "bag-handle", 
+    {
+        name: "Products",
+        icon: "bag-handle",
         children: [
             { name: "All Products", href: "/admin/products/all" },
             { name: "Active Products", href: "/admin/products/active" },
@@ -35,7 +35,6 @@ const menuItems = [
     { name: "Subscription", icon: "card", href: "/admin/subscription" },
     { name: "Top-up / Requests", icon: "cash", href: "/admin/wallet/topup" },
     { name: "Wallet", icon: "wallet", href: "/admin/wallet/main" },
-    { name: "All Transactions", icon: "receipt", href: "/admin/transactions" },
 ];
 
 interface SidebarProps {
@@ -53,7 +52,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
     const [loading, setLoading] = useState(true);
 
     const toggleMenu = (name: string) => {
-        setOpenMenus((prev: string[]) => 
+        setOpenMenus((prev: string[]) =>
             prev.includes(name) ? prev.filter((m: string) => m !== name) : [...prev, name]
         );
     };
@@ -69,7 +68,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                     localStorage.removeItem('token');
                     localStorage.removeItem('user');
                 }
-                
+
                 if (error.message === 'No session found') {
                     console.warn("User session not found - using guest mode");
                 } else {
@@ -115,10 +114,10 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
             <div className="p-6 relative flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                     <div className="relative w-8 h-8 shrink-0">
-                        <Image 
-                            src="/assets/images/googer.png" 
-                            alt="Logo" 
-                            fill 
+                        <Image
+                            src="/assets/images/googer.png"
+                            alt="Logo"
+                            fill
                             className="object-contain"
                         />
                     </div>
@@ -131,7 +130,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                 </div>
 
                 {/* Mobile Close Button */}
-                <button 
+                <button
                     onClick={onCloseMobile}
                     className="md:hidden p-2 text-slate-400 hover:text-white"
                 >
@@ -169,9 +168,9 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                                         {(!isCollapsed || isMobileOpen) && (
                                             <>
                                                 <span className="font-medium text-sm flex-1 text-left">{item.name}</span>
-                                                <IonIcon 
-                                                    name={isOpen ? "chevron-down" : "chevron-forward"} 
-                                                    className={`text-[10px] transition-transform ${isOpen ? "rotate-0" : ""}`} 
+                                                <IonIcon
+                                                    name={isOpen ? "chevron-down" : "chevron-forward"}
+                                                    className={`text-[10px] transition-transform ${isOpen ? "rotate-0" : ""}`}
                                                 />
                                             </>
                                         )}
