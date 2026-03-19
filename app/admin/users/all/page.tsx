@@ -34,8 +34,8 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
   const [newUserData, setNewUserData] = useState({ username: '', full_name: '', email: '', user_type: 'User' });
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "highest" | "lowest">("highest");
   const [isSortOpen, setIsSortOpen] = useState(false);
-  const [confirmStatusModal, setConfirmStatusModal] = useState<{ user: User, nextStatus: string } | null>(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
+  const [restoreConfirmUser, setRestoreConfirmUser] = useState<User | null>(null);
   
   const [showGoogerTransferModal, setShowGoogerTransferModal] = useState(false);
   const [transferTargetAdmin, setTransferTargetAdmin] = useState<number | null>(null);
@@ -99,33 +99,15 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
     return 0;
   });
 
-  const handleStatusToggle = async () => {
-    if (!confirmStatusModal) return;
-    const { user, nextStatus } = confirmStatusModal;
+  const handleRestoreUser = async () => {
+    if (!restoreConfirmUser) return;
     try {
       setLoading(true);
-      await adminService.updateUserStatus(user.id.toString(), nextStatus);
-      setUsers(users.map(u => u.id === user.id ? { ...u, status: nextStatus } : u));
-      setConfirmStatusModal(null);
-      if (nextStatus === 'Deactivated') {
-        router.push('/admin/users/deactivated');
-      }
+      await adminService.restoreUser(restoreConfirmUser.id.toString());
+      setUsers(users.map(u => u.id === restoreConfirmUser.id ? { ...u, status: 'Active' } : u));
+      setRestoreConfirmUser(null);
     } catch (err: any) {
-      alert("Error updating status: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteUser = async () => {
-    if (!deleteConfirmUser) return;
-    try {
-      setLoading(true);
-      await adminService.softDeleteUser(deleteConfirmUser.id.toString());
-      setUsers(users.filter(u => u.id !== deleteConfirmUser.id));
-      setDeleteConfirmUser(null);
-    } catch (err: any) {
-      alert("Error deleting user: " + err.message);
+      alert("Error restoring account: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -365,7 +347,10 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
                           View Full Profile
                         </Link>
                         <button
-                          onClick={() => setConfirmStatusModal({ user, nextStatus: user.status === 'Active' ? 'Deactivated' : 'Active' })}
+                          onClick={() => user.status === 'Active' 
+                            ? setDeleteConfirmUser(user) 
+                            : setRestoreConfirmUser(user)
+                          }
                           className={`h-10 px-4 rounded-xl border text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
                             user.status === 'Active' 
                             ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20' 
@@ -374,13 +359,6 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
                         >
                           <IonIcon name={user.status === 'Active' ? "close-circle-outline" : "checkmark-circle-outline"} className="text-sm" />
                           {user.status === 'Active' ? 'Deactivate Account' : 'Activate Account'}
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmUser(user)}
-                          className="h-10 px-4 rounded-xl bg-white/5 border border-white/10 text-slate-500 text-[8px] font-black uppercase tracking-widest hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/20 transition-all flex items-center gap-2"
-                        >
-                          <IonIcon name="trash-outline" className="text-sm" />
-                          Delete Account
                         </button>
                       </div>
                     </td>
@@ -459,57 +437,9 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
           </div>
         </div>
       )}
-      {/* Activation/Deactivation Confirmation Modal */}
-      {confirmStatusModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div 
-            className="fixed inset-0 bg-black/90 backdrop-blur-xl animate-in fade-in duration-300" 
-            onClick={() => setConfirmStatusModal(null)}
-          ></div>
-          <div className="bg-[#0c0c0e] border border-white/10 rounded-[2.5rem] w-full max-w-sm p-8 relative z-[210] shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
-            {/* Background design elements */}
-            <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl -mr-16 -mt-16 opacity-20 ${confirmStatusModal.nextStatus === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
-            
-            <div className={`w-16 h-16 rounded-2xl mb-6 flex items-center justify-center border animate-bounce ${
-              confirmStatusModal.nextStatus === 'Active' 
-              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-              : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-            }`}>
-              <IonIcon name={confirmStatusModal.nextStatus === 'Active' ? "shield-checkmark-outline" : "alert-circle-outline"} className="text-3xl" />
-            </div>
 
-            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">
-              Confirm Account {confirmStatusModal.nextStatus === 'Active' ? 'Activation' : 'Deactivation'}
-            </h3>
-            <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
-              Are you sure you want to <span className={confirmStatusModal.nextStatus === 'Active' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                {confirmStatusModal.nextStatus.toLowerCase()}
-              </span> the account for <span className="text-white font-bold">{confirmStatusModal.user.full_name}</span>? This action will affect their access to the system.
-            </p>
 
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                onClick={() => setConfirmStatusModal(null)}
-                className="h-12 rounded-xl bg-white/5 border border-white/10 text-white font-black text-[10px] uppercase tracking-widest hover:bg-white/10 transition-all active:scale-95"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleStatusToggle}
-                className={`h-12 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shadow-lg ${
-                  confirmStatusModal.nextStatus === 'Active'
-                  ? 'bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/20'
-                  : 'bg-rose-500 text-white hover:bg-rose-400 shadow-rose-500/20'
-                }`}
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
+      {/* Deactivate/Delete Pipeline Confirmation Modal (from All Users) */}
       {deleteConfirmUser && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div 
@@ -520,28 +450,74 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-rose-500/10 blur-3xl -mt-16 opacity-30"></div>
             
             <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center bg-rose-500/10 border border-rose-500/20 text-rose-500 animate-pulse">
-              <IonIcon name="trash-outline" className="text-4xl" />
+              <IonIcon name="close-circle-outline" className="text-4xl" />
             </div>
 
-            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-3">Delete User Account?</h3>
+            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-3">Deactivate Account?</h3>
             <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
-              Are you sure you want to delete <span className="text-white font-bold">{deleteConfirmUser.full_name}</span>'s account? 
+              Are you sure you want to deactivate <span className="text-white font-bold">{deleteConfirmUser.full_name}</span>'s account? 
               <br/><br/>
-              The user will be moved to the <span className="text-rose-400 font-bold">Deactivated Users</span> list and permanently deleted after <span className="text-white font-bold">7 days</span>.
+              They will be moved to the <span className="text-rose-400 font-bold">Deactivated Users</span> list and permanently deleted after <span className="text-white font-bold">7 days</span>.
             </p>
 
             <div className="flex flex-col gap-3">
               <button 
-                onClick={handleDeleteUser}
+                onClick={async () => {
+                    try {
+                        setLoading(true);
+                        await adminService.softDeleteUser(deleteConfirmUser.id.toString());
+                        // Move users from list after deactivation
+                        setUsers(users.filter(u => u.id !== deleteConfirmUser.id));
+                        setDeleteConfirmUser(null);
+                        router.push('/admin/users/deactivated');
+                    } catch (err: any) {
+                        alert("Error: " + err.message);
+                    } finally {
+                        setLoading(false);
+                    }
+                }}
                 className="h-14 rounded-2xl bg-rose-500 text-white font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-400 transition-all active:scale-95 shadow-lg shadow-rose-500/20"
               >
-                Move to Deactivated
+                Confirm Deactivate
               </button>
               <button 
                 onClick={() => setDeleteConfirmUser(null)}
                 className="h-12 rounded-2xl bg-white/5 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all active:scale-95"
               >
-                Keep Account
+                Keep Active
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore Confirmation Modal */}
+      {restoreConfirmUser && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div 
+            className="fixed inset-0 bg-black/90 backdrop-blur-xl animate-in fade-in duration-300" 
+            onClick={() => setRestoreConfirmUser(null)}
+          ></div>
+          <div className="bg-[#0c0c0e] border border-white/10 rounded-[2.5rem] w-full max-w-sm p-8 relative z-[210] shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] animate-in fade-in zoom-in-95 duration-300 overflow-hidden text-center">
+            <div className="absolute top-0 right-0 w-32 h-32 blur-3xl -mr-16 -mt-16 opacity-20 bg-emerald-500"></div>
+            
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 flex items-center justify-center border animate-bounce bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
+              <IonIcon name="checkmark-circle-outline" className="text-3xl" />
+            </div>
+
+            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">Reactivate Account?</h3>
+            <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
+              Restore access for <span className="text-white font-bold">{restoreConfirmUser.full_name}</span>? 
+              This will remove them from the deletion pipeline.
+            </p>
+
+            <div className="flex gap-3">
+              <button onClick={() => setRestoreConfirmUser(null)} className="flex-1 h-12 rounded-2xl bg-white/5 border border-white/10 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:bg-white/10 transition-all active:scale-95">Cancel</button>
+              <button 
+                onClick={handleRestoreUser}
+                className="flex-1 h-12 rounded-2xl font-black text-[10px] uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-500/20 shadow-lg"
+              >
+                Confirm
               </button>
             </div>
           </div>
