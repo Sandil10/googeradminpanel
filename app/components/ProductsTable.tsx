@@ -136,15 +136,23 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
     }, [statusFilter]);
 
     const filteredProducts = products.filter(p => {
+        if (!p) return false;
         if (!searchTerm) return true;
-        const search = searchTerm.toLowerCase();
-        return (
-            p.id.toString().includes(search) ||
-            p.user_id.toLowerCase().includes(search) ||
-            (p.username && p.username.toLowerCase().includes(search)) ||
-            (p.seller_id && p.seller_id.toLowerCase().includes(search)) ||
-            (p.title && p.title.toLowerCase().includes(search))
-        );
+        try {
+            const search = searchTerm.toLowerCase();
+            const pidString = String(p.id || '');
+            const userIdString = String(p.user_id || '');
+            const usernameString = String(p.username || '');
+            const sellerIdString = String(p.seller_id || '');
+            const titleString = String(p.title || '');
+            const categoryString = String(p.category || '');
+            
+            const searchableText = `${pidString} PID-${pidString} ${userIdString} ${usernameString} ${sellerIdString} ${titleString} ${categoryString}`.toLowerCase();
+            return searchableText.includes(search);
+        } catch (e) {
+            console.error("Filter error:", e);
+            return false;
+        }
     });
 
     const sortedProducts = [...filteredProducts].sort((a, b) => {
