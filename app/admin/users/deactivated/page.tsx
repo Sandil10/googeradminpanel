@@ -23,6 +23,7 @@ export default function DeactivatedUsersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [restoreConfirmUser, setRestoreConfirmUser] = useState<User | null>(null);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
 
   useEffect(() => {
     fetchDeactivated();
@@ -49,6 +50,20 @@ export default function DeactivatedUsersPage() {
       setRestoreConfirmUser(null);
     } catch (err: any) {
       alert("Error restoring user: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirmUser) return;
+    try {
+      setLoading(true);
+      await adminService.permanentlyDeleteUser(deleteConfirmUser.id.toString());
+      setUsers(users.filter(u => u.id !== deleteConfirmUser.id));
+      setDeleteConfirmUser(null);
+    } catch (err: any) {
+      alert("Error deleting user: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -163,12 +178,22 @@ export default function DeactivatedUsersPage() {
                           </div>
                         </td>
                         <td className="px-6 py-6 text-right">
-                          <button 
-                            onClick={() => setRestoreConfirmUser(user)}
-                            className="h-10 px-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[8px] font-black uppercase tracking-widest hover:bg-blue-500/20 hover:border-blue-500/40 transition-all active:scale-95"
-                          >
-                            Restore Account
-                          </button>
+                          <div className="flex items-center justify-end gap-3">
+                            <button 
+                              onClick={() => setRestoreConfirmUser(user)}
+                              className="h-10 px-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[8px] font-black uppercase tracking-widest hover:bg-blue-500/20 hover:border-blue-500/40 transition-all flex items-center gap-2 active:scale-95"
+                            >
+                              <IonIcon name="refresh-outline" className="text-sm" />
+                              Restore Account
+                            </button>
+                            <button 
+                              onClick={() => setDeleteConfirmUser(user)}
+                              className="h-10 px-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[8px] font-black uppercase tracking-widest hover:bg-rose-500/20 hover:border-rose-500/40 transition-all flex items-center gap-2 active:scale-95"
+                            >
+                              <IonIcon name="trash-outline" className="text-sm" />
+                              Delete Account
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -183,19 +208,82 @@ export default function DeactivatedUsersPage() {
       {/* Restore Confirmation Modal */}
       {restoreConfirmUser && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/95 backdrop-blur-3xl animate-in fade-in duration-300" onClick={() => setRestoreConfirmUser(null)}></div>
-          <div className="bg-[#0c0c0e] border border-blue-500/20 rounded-[2.5rem] w-full max-w-sm p-8 relative z-[210] shadow-[0_50px_100px_-20px_rgba(30,58,138,0.2)] animate-in fade-in zoom-in-95 duration-300 text-center">
-            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 flex items-center justify-center bg-blue-500/10 border border-blue-500/20 text-blue-400">
+          <div 
+            className="fixed inset-0 bg-black/90 backdrop-blur-xl animate-in fade-in duration-300" 
+            onClick={() => setRestoreConfirmUser(null)}
+          ></div>
+          <div className="bg-[#0c0c0e] border border-white/10 rounded-[2.5rem] w-full max-w-sm p-8 relative z-[210] shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] animate-in fade-in zoom-in-95 duration-300 overflow-hidden text-center">
+            {/* Background design elements */}
+            <div className="absolute top-0 right-0 w-32 h-32 blur-3xl -mr-16 -mt-16 opacity-20 bg-blue-500"></div>
+            
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 flex items-center justify-center border animate-bounce bg-blue-500/10 border-blue-500/20 text-blue-400">
               <IonIcon name="refresh-outline" className="text-3xl" />
             </div>
-            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">Restore User?</h3>
-            <p className="text-slate-400 text-sm mb-8 leading-relaxed font-medium">
-              Are you sure you want to restore the account for <span className="text-white font-bold">{restoreConfirmUser.full_name}</span>? 
-              This will immediately stop the 7-day deletion process.
+
+            <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">
+              Restore User?
+            </h3>
+            <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
+              Are you sure you want to restore the account for <span className="text-white font-bold">{restoreConfirmUser.full_name}</span>?
+              <br/><br/>
+              This will safely reactivate their account and stop the <span className="text-blue-400 font-bold">7-day</span> deletion process.
             </p>
-            <div className="grid grid-cols-2 gap-4">
-              <button onClick={() => setRestoreConfirmUser(null)} className="h-12 rounded-xl bg-white/5 border border-white/10 text-white text-[8px] font-black uppercase tracking-widest hover:bg-white/10 transition-all active:scale-95">Cancel</button>
-              <button onClick={handleRestore} className="h-12 rounded-xl bg-blue-600 text-white text-[8px] font-black uppercase tracking-widest hover:bg-blue-500 transition-all active:scale-95 shadow-lg shadow-blue-500/20">Confirm Restore</button>
+
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setRestoreConfirmUser(null)}
+                className="flex-1 h-12 rounded-2xl bg-white/5 border border-white/10 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all active:scale-95"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleRestore}
+                className="flex-1 h-12 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 bg-blue-600 text-white hover:bg-blue-500 shadow-blue-500/20 shadow-lg border border-blue-500/40"
+              >
+                Confirm Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmUser && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div 
+            className="fixed inset-0 bg-black/95 backdrop-blur-2xl animate-in fade-in duration-300" 
+            onClick={() => setDeleteConfirmUser(null)}
+          ></div>
+          <div className="bg-[#0c0c0e] border border-rose-500/20 rounded-[2.5rem] w-full max-w-sm p-8 relative z-[210] shadow-[0_50px_100px_-20px_rgba(255,0,0,0.1)] animate-in fade-in zoom-in-95 duration-300 overflow-hidden text-center">
+            {/* Background design elements */}
+            <div className="absolute top-0 right-0 w-32 h-32 blur-3xl -mr-16 -mt-16 opacity-20 bg-rose-500"></div>
+            
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 flex items-center justify-center border animate-bounce bg-rose-500/10 border-rose-500/20 text-rose-400">
+              <IonIcon name="warning-outline" className="text-4xl" />
+            </div>
+
+            <h3 className="text-xl font-black text-rose-500 uppercase tracking-tight mb-2">
+              Permanently Delete?
+            </h3>
+            <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
+              Are you sure you want to permanently delete <span className="text-white font-bold">{deleteConfirmUser.full_name}</span>?
+              <br/><br/>
+              This action <span className="text-rose-400 font-bold">cannot be undone</span>. All their data, transactions, and information will be completely erased from the database immediately.
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={handleDelete}
+                className="w-full h-14 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-500 hover:text-white transition-all active:scale-95 shadow-lg shadow-rose-500/10"
+              >
+                Permanently Delete
+              </button>
+              <button 
+                onClick={() => setDeleteConfirmUser(null)}
+                className="w-full h-12 rounded-2xl bg-white/5 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all active:scale-95"
+              >
+                Cancel Action
+              </button>
             </div>
           </div>
         </div>

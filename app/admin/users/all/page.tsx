@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import IonIcon from "../../../components/IonIcon";
 import { adminService } from "../../../services/adminService";
 
@@ -22,6 +23,7 @@ interface UsersTableProps {
 }
 
 export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
+  const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +106,9 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
       await adminService.updateUserStatus(user.id.toString(), nextStatus);
       setUsers(users.map(u => u.id === user.id ? { ...u, status: nextStatus } : u));
       setConfirmStatusModal(null);
+      if (nextStatus === 'Deactivated') {
+        router.push('/admin/users/deactivated');
+      }
     } catch (err: any) {
       alert("Error updating status: " + err.message);
     } finally {

@@ -75,6 +75,16 @@ export const adminService = {
         return result;
     },
 
+    permanentlyDeleteUser: async (id: string) => {
+        const response = await fetch(`${API_URL}/users/${id}/permanent`, {
+            method: 'DELETE',
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to permanently delete user');
+        return result;
+    },
+
     restoreUser: async (id: string) => {
         const response = await fetch(`${API_URL}/users/${id}/restore`, {
             method: 'POST',
