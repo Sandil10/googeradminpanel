@@ -6,16 +6,28 @@ const pool = require('../config/database');
 router.get('/all', async (req, res) => {
   try {
     const { status } = req.query;
-    let query = 'SELECT * FROM market';
+    let query = `
+      SELECT m.*, 
+             COALESCE(u.id, m.user_id::integer) as user_id,
+             COALESCE(u.user_id, m.owner_user_id) as seller_id,
+             COALESCE(u.username, m.username) as username,
+             u.full_name
+      FROM market m
+      LEFT JOIN users u ON (
+        (m.user_id ~ '^[0-9]+$' AND m.user_id::integer = u.id) OR 
+        (m.user_id = u.user_id) OR
+        (m.owner_user_id = u.user_id)
+      )
+    `;
     let params = [];
     
     if (status) {
       const statusArray = status.split(',');
-      query += ' WHERE status = ANY($1)';
+      query += ' WHERE m.status = ANY($1)';
       params.push(statusArray);
     }
     
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY m.created_at DESC';
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
@@ -28,7 +40,20 @@ router.get('/all', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('SELECT * FROM market WHERE id = $1', [id]);
+    const result = await pool.query(`
+      SELECT m.*, 
+             COALESCE(u.id, CASE WHEN m.user_id ~ '^[0-9]+$' THEN m.user_id::integer ELSE NULL END) as user_id,
+             COALESCE(u.user_id, m.owner_user_id) as seller_id,
+             COALESCE(u.username, m.username) as username,
+             u.full_name
+      FROM market m
+      LEFT JOIN users u ON (
+        (m.user_id ~ '^[0-9]+$' AND m.user_id::integer = u.id) OR 
+        (m.user_id = u.user_id) OR
+        (m.owner_user_id = u.user_id)
+      )
+      WHERE m.id = $1
+    `, [id]);
     if (result.rows.length === 0) return res.status(404).json({ message: 'Product not found' });
     res.json(result.rows[0]);
   } catch (err) {
