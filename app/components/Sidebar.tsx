@@ -27,6 +27,7 @@ const menuItems = [
             { name: "Active Products", href: "/admin/products/active" },
             { name: "Reviewed Products", href: "/admin/products/reviewed" },
             { name: "Rejected Products", href: "/admin/products/rejected" },
+            { name: "Deactivated Products", href: "/admin/products/deactivated" },
         ]
     },
     { name: "Posts", icon: "document-text", href: "/admin/posts" },

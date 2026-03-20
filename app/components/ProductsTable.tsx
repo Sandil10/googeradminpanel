@@ -239,6 +239,10 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                 // After rejecting, navigate to the rejected products page
                 if (action === 'rejected') {
                     router.push('/admin/products/rejected');
+                } else if (action === 'inactive') {
+                    router.push('/admin/products/deactivated');
+                } else if (action === 'active') {
+                    router.push('/admin/products/active');
                 }
             }
             setActiveMenu(null);
@@ -531,7 +535,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                                 className="h-8 px-3 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-400 text-[9px] font-black uppercase tracking-widest hover:bg-purple-500/20 transition-all flex items-center gap-1.5"
                                                             >
                                                                 <IonIcon name="close-circle-outline" className="text-xs" />
-                                                                Inactive
+                                                                Deactivate
                                                             </button>
                                                         ) : (
                                                             <button
@@ -931,7 +935,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                     className="flex-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-purple-500/20 flex items-center justify-center gap-3"
                                 >
                                     <IonIcon name="close-circle-outline" className="text-lg" />
-                                    Inactive
+                                    Deactivate
                                 </button>
                             ) : (
                                 <button
