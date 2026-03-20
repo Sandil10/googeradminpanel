@@ -42,6 +42,7 @@ interface ProductsTableProps {
     title: string;
     description: string;
     statusFilter?: string;
+    userId?: string;
 }
 
 interface ConfirmDialog {
@@ -55,7 +56,7 @@ interface ConfirmDialog {
     icon: string;
 }
 
-export default function ProductsTable({ title, description, statusFilter }: ProductsTableProps) {
+export default function ProductsTable({ title, description, statusFilter, userId }: ProductsTableProps) {
     const pathname = usePathname();
     const router = useRouter();
     const [products, setProducts] = useState<Product[]>([]);
@@ -137,7 +138,7 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
     const loadProducts = async () => {
         try {
             setLoading(true);
-            const data = await adminService.fetchAllProducts(statusFilter);
+            const data = await adminService.fetchAllProducts(statusFilter, userId);
             setProducts(data || []);
         } catch (err: any) {
             console.error(err);
@@ -236,14 +237,6 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                     }
                     return updatedList;
                 });
-                // After rejecting, navigate to the rejected products page
-                if (action === 'rejected') {
-                    router.push('/admin/products/rejected');
-                } else if (action === 'inactive') {
-                    router.push('/admin/products/deactivated');
-                } else if (action === 'active') {
-                    router.push('/admin/products/active');
-                }
             }
             setActiveMenu(null);
         } catch (err: any) {

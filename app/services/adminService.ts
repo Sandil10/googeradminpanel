@@ -96,8 +96,15 @@ export const adminService = {
     },
 
     // Product Management
-    fetchAllProducts: async (status?: string) => {
-        const url = status ? `${API_URL}/products/all?status=${status}` : `${API_URL}/products/all`;
+    fetchAllProducts: async (status?: string, userId?: string) => {
+        let url = `${API_URL}/products/all`;
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+        if (userId) params.append('userId', userId);
+        
+        const queryString = params.toString();
+        if (queryString) url += `?${queryString}`;
+        
         const response = await fetch(url, {
             headers: getHeaders()
         });

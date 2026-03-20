@@ -5,7 +5,7 @@ const pool = require('../config/database');
 // Get all products
 router.get('/all', async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, userId } = req.query;
     let query = `
       SELECT m.*, 
              COALESCE(u.id, m.user_id) as user_id,
@@ -16,11 +16,18 @@ router.get('/all', async (req, res) => {
       LEFT JOIN users u ON (m.user_id = u.id OR m.owner_user_id = u.user_id)
     `;
     let params = [];
+    let whereAdded = false;
     
     if (status) {
       const statusArray = status.split(',');
       query += ' WHERE m.status = ANY($1)';
       params.push(statusArray);
+      whereAdded = true;
+    }
+
+    if (userId) {
+      query += whereAdded ? ' AND (m.user_id = $2 OR m.owner_user_id = (SELECT user_id FROM users WHERE id = $2))' : ' WHERE (m.user_id = $1 OR m.owner_user_id = (SELECT user_id FROM users WHERE id = $1))';
+      params.push(userId);
     }
     
     query += ' ORDER BY m.created_at DESC';

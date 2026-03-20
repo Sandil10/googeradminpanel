@@ -5,6 +5,7 @@ import Image from "next/image";
 import IonIcon from "@/components/IonIcon";
 import { adminService } from "@/services/adminService";
 import Link from "next/link";
+import ProductsTable from "@/components/ProductsTable";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 interface Transaction {
@@ -58,6 +59,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
   const [error, setError] = useState<string | null>(null);
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
+  const [showUserProducts, setShowUserProducts] = useState(false);
   const [txSearchTerm, setTxSearchTerm] = useState("");
   const [txPage, setTxPage] = useState(1);
   const txPerPage = 10;
@@ -174,19 +176,31 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12 border-t border-[#1a1a1a] pt-12">
             {/* Wallet */}
-            <button 
-                onClick={() => setShowBalanceDetails(true)}
-                className="bg-black/50 border border-white/5 p-6 rounded-3xl group hover:border-emerald-500/50 transition-all text-left"
-            >
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xl mb-4 group-hover:scale-110 transition-transform">
-                <IonIcon name="wallet-outline" />
+            <div className="flex flex-col gap-4">
+              <div className="flex justify-between items-end px-2">
+                  <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest pl-1">Financial State</p>
+                  <button 
+                      onClick={() => setShowUserProducts(true)}
+                      className="px-4 py-1.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-widest border border-blue-500/20 transition-all flex items-center gap-1.5 active:scale-95"
+                  >
+                      <IonIcon name="bag-handle-outline" />
+                      View User Products
+                  </button>
               </div>
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1">Available Balance</p>
-              <h3 className="text-2xl font-black text-white">R {parseFloat(user.wallet_balance).toLocaleString()}</h3>
-              <p className="text-[10px] text-emerald-500 mt-2 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                View Details <IonIcon name="chevron-forward" />
-              </p>
-            </button>
+              <button 
+                  onClick={() => setShowBalanceDetails(true)}
+                  className="bg-black/50 border border-white/5 p-6 rounded-3xl group hover:border-emerald-500/50 transition-all text-left w-full h-full"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xl mb-4 group-hover:scale-110 transition-transform">
+                  <IonIcon name="wallet-outline" />
+                </div>
+                <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1">Available Balance</p>
+                <h3 className="text-2xl font-black text-white">R {parseFloat(user.wallet_balance).toLocaleString()}</h3>
+                <p className="text-[10px] text-emerald-500 mt-2 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                  View Details <IonIcon name="chevron-forward" />
+                </p>
+              </button>
+            </div>
 
             {/* Total Earnings */}
              <div className="bg-black/50 border border-white/5 p-6 rounded-3xl group hover:border-blue-500/50 transition-all">
@@ -501,6 +515,30 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
                             </div>
                         );
                     })()}
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* User Products Modal */}
+      {showUserProducts && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in duration-300">
+             <div className="absolute top-6 right-6 z-[160]">
+                <button 
+                    onClick={() => setShowUserProducts(false)}
+                    className="w-14 h-14 rounded-[1.5rem] bg-white/5 border border-white/10 text-white flex items-center justify-center text-2xl hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/20 transition-all shadow-2xl active:scale-90"
+                >
+                    <IonIcon name="close" />
+                </button>
+            </div>
+
+            <div className="w-full h-full p-4 md:p-10 overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-y-auto custom-scrollbar rounded-[2.5rem] bg-[#09090b] border border-white/10 shadow-2xl animate-in zoom-in-95 duration-300">
+                    <ProductsTable 
+                        title={`${user.full_name}'s Products`}
+                        description={`All products currently listed or submitted by ${user.username}.`}
+                        userId={user.id.toString()}
+                    />
                 </div>
             </div>
         </div>
