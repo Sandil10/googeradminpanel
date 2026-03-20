@@ -5,7 +5,6 @@ import Image from "next/image";
 import IonIcon from "@/components/IonIcon";
 import { adminService } from "@/services/adminService";
 import Link from "next/link";
-import ProductsTable from "@/components/ProductsTable";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 interface Transaction {
@@ -59,7 +58,6 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
   const [error, setError] = useState<string | null>(null);
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
-  const [showUserProducts, setShowUserProducts] = useState(false);
   const [txSearchTerm, setTxSearchTerm] = useState("");
   const [txPage, setTxPage] = useState(1);
   const txPerPage = 10;
@@ -180,7 +178,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
               <div className="flex justify-between items-end px-2">
                   <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest pl-1">Financial State</p>
                   <button 
-                      onClick={() => setShowUserProducts(true)}
+                      onClick={() => router.push(`/admin/users/${userId}/products`)}
                       className="px-4 py-1.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-widest border border-blue-500/20 transition-all flex items-center gap-1.5 active:scale-95"
                   >
                       <IonIcon name="bag-handle-outline" />
@@ -515,30 +513,6 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
                             </div>
                         );
                     })()}
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* User Products Modal */}
-      {showUserProducts && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in duration-300">
-             <div className="absolute top-6 right-6 z-[160]">
-                <button 
-                    onClick={() => setShowUserProducts(false)}
-                    className="w-14 h-14 rounded-[1.5rem] bg-white/5 border border-white/10 text-white flex items-center justify-center text-2xl hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/20 transition-all shadow-2xl active:scale-90"
-                >
-                    <IonIcon name="close" />
-                </button>
-            </div>
-
-            <div className="w-full h-full p-4 md:p-10 overflow-hidden flex flex-col">
-                <div className="flex-1 overflow-y-auto custom-scrollbar rounded-[2.5rem] bg-[#09090b] border border-white/10 shadow-2xl animate-in zoom-in-95 duration-300">
-                    <ProductsTable 
-                        title={`${user.full_name}'s Products`}
-                        description={`All products currently listed or submitted by ${user.username}.`}
-                        userId={user.id.toString()}
-                    />
                 </div>
             </div>
         </div>
