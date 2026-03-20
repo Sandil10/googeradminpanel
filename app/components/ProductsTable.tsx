@@ -5,7 +5,7 @@ import IonIcon from "@/components/IonIcon";
 import { adminService } from "@/services/adminService";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 interface Product {
     id: number;
@@ -44,8 +44,20 @@ interface ProductsTableProps {
     statusFilter?: string;
 }
 
+interface ConfirmDialog {
+    open: boolean;
+    productId: number | null;
+    action: string;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    confirmClass: string;
+    icon: string;
+}
+
 export default function ProductsTable({ title, description, statusFilter }: ProductsTableProps) {
     const pathname = usePathname();
+    const router = useRouter();
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeMenu, setActiveMenu] = useState<number | null>(null);
@@ -56,6 +68,10 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
     const [searchTerm, setSearchTerm] = useState("");
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "modified">("newest");
     const [isSortOpen, setIsSortOpen] = useState(false);
+    const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>({
+        open: false, productId: null, action: '', title: '', message: '', confirmLabel: '', confirmClass: '', icon: ''
+    });
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const cleanImageUrl = (url: string) => {
         if (!url) return '';
@@ -166,31 +182,71 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
         return 0;
     });
 
-    const handleAction = async (productId: number, status: string) => {
+    const openConfirm = (productId: number, action: string) => {
+        const configs: Record<string, Omit<ConfirmDialog, 'open' | 'productId' | 'action'>> = {
+            inactive: {
+                title: 'Deactivate Product',
+                message: 'This will hide the product from the marketplace. The seller will be notified. You can re-activate it at any time.',
+                confirmLabel: 'Deactivate',
+                confirmClass: 'bg-purple-600 hover:bg-purple-500 text-white',
+                icon: 'close-circle',
+            },
+            active: {
+                title: 'Activate Product',
+                message: 'This will make the product visible and purchasable in the marketplace immediately.',
+                confirmLabel: 'Activate',
+                confirmClass: 'bg-emerald-600 hover:bg-emerald-500 text-white',
+                icon: 'checkmark-circle',
+            },
+            rejected: {
+                title: 'Reject Product',
+                message: 'This product will be rejected and moved to the rejected section. The seller will be notified.',
+                confirmLabel: 'Reject',
+                confirmClass: 'bg-rose-600 hover:bg-rose-500 text-white',
+                icon: 'ban',
+            },
+            Delete: {
+                title: 'Delete Product',
+                message: 'This will permanently delete the product and all its data. This action cannot be undone.',
+                confirmLabel: 'Delete Permanently',
+                confirmClass: 'bg-red-700 hover:bg-red-600 text-white',
+                icon: 'trash',
+            },
+        };
+        const cfg = configs[action];
+        if (!cfg) return;
+        setConfirmDialog({ open: true, productId, action, ...cfg });
+    };
+
+    const handleConfirmedAction = async () => {
+        const { productId, action } = confirmDialog;
+        if (!productId) return;
+        setIsProcessing(true);
         try {
-            if (status === 'Delete') {
-                if (!confirm("Are you sure you want to delete this product?")) return;
+            if (action === 'Delete') {
                 await adminService.deleteProduct(productId.toString());
                 setProducts(prev => prev.filter(p => p.id !== productId));
             } else {
-                await adminService.updateProductStatus(productId.toString(), status);
-                
+                await adminService.updateProductStatus(productId.toString(), action);
                 setProducts(prev => {
-                    // Update the product in the full list first
-                    const updatedList = prev.map(p => p.id === productId ? { ...p, status } : p);
-                    
-                    // If we have a status filter, we should check if the product still belongs in this view
+                    const updatedList = prev.map(p => p.id === productId ? { ...p, status: action } : p);
                     if (statusFilter && statusFilter !== 'all') {
                         const activeFilters = statusFilter.split(',').map(s => s.trim());
                         return updatedList.filter(p => activeFilters.includes(p.status));
                     }
-                    
                     return updatedList;
                 });
+                // After rejecting, navigate to the rejected products page
+                if (action === 'rejected') {
+                    router.push('/admin/products/rejected');
+                }
             }
             setActiveMenu(null);
         } catch (err: any) {
-            alert("Error: " + err.message);
+            alert('Error: ' + err.message);
+        } finally {
+            setIsProcessing(false);
+            setConfirmDialog(prev => ({ ...prev, open: false }));
         }
     };
 
@@ -427,14 +483,14 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                 {(statusFilter === 'reviewing' || statusFilter === 'review') ? (
                                                     <>
                                                         <button
-                                                            onClick={() => handleAction(product.id, 'active')}
+                                                            onClick={() => openConfirm(product.id, 'active')}
                                                             className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
                                                         >
                                                             <IonIcon name="checkmark-circle-outline" className="text-xs" />
                                                             Approve
                                                         </button>
                                                         <button
-                                                            onClick={() => handleAction(product.id, 'rejected')}
+                                                            onClick={() => openConfirm(product.id, 'rejected')}
                                                             className="h-8 px-3 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-400 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
                                                         >
                                                             <IonIcon name="ban-outline" className="text-xs" />
@@ -443,23 +499,53 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                                     </>
                                                 ) : statusFilter === 'rejected' ? (
                                                     <button
-                                                        onClick={() => handleAction(product.id, 'active')}
+                                                        onClick={() => openConfirm(product.id, 'active')}
                                                         className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
                                                     >
                                                         <IonIcon name="checkmark-circle-outline" className="text-xs" />
                                                         Approve
                                                     </button>
                                                 ) : (
-                                                    <button
-                                                        onClick={() => handleAction(product.id, 'inactive')}
-                                                        className="h-8 px-3 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-400 text-[9px] font-black uppercase tracking-widest hover:bg-purple-500/20 transition-all flex items-center gap-1.5"
-                                                    >
-                                                        <IonIcon name="close-circle-outline" className="text-xs" />
-                                                        Inactive
-                                                    </button>
+                                                    // Smart: show buttons based on each product's own status
+                                                    <>
+                                                        {(product.status === 'reviewing' || product.status === 'review' || product.status === 'pending') ? (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => openConfirm(product.id, 'active')}
+                                                                    className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                                >
+                                                                    <IonIcon name="checkmark-circle-outline" className="text-xs" />
+                                                                    Approve
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => openConfirm(product.id, 'rejected')}
+                                                                    className="h-8 px-3 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-400 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+                                                                >
+                                                                    <IonIcon name="ban-outline" className="text-xs" />
+                                                                    Reject
+                                                                </button>
+                                                            </>
+                                                        ) : product.status === 'active' ? (
+                                                            <button
+                                                                onClick={() => openConfirm(product.id, 'inactive')}
+                                                                className="h-8 px-3 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-400 text-[9px] font-black uppercase tracking-widest hover:bg-purple-500/20 transition-all flex items-center gap-1.5"
+                                                            >
+                                                                <IonIcon name="close-circle-outline" className="text-xs" />
+                                                                Inactive
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => openConfirm(product.id, 'active')}
+                                                                className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                            >
+                                                                <IonIcon name="checkmark-circle-outline" className="text-xs" />
+                                                                Activate
+                                                            </button>
+                                                        )}
+                                                    </>
                                                 )}
                                                 <button
-                                                    onClick={() => handleAction(product.id, 'Delete')}
+                                                    onClick={() => openConfirm(product.id, 'Delete')}
                                                     className="h-8 px-3 rounded-lg bg-white/5 text-slate-400 border border-white/10 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/20 transition-all flex items-center gap-1.5"
                                                 >
                                                     <IonIcon name="trash-outline" className="text-xs" />
@@ -816,21 +902,15 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                          <div className="p-6 md:p-8 border-t border-white/5 flex gap-4 bg-black/20">
                             {(statusFilter === 'reviewing' || statusFilter === 'review') ? (
                                 <>
-                                    <button 
-                                        onClick={() => {
-                                            handleAction(selectedProduct.id, 'active');
-                                            setSelectedProduct(null);
-                                        }}
+                                    <button
+                                        onClick={() => { setSelectedProduct(null); openConfirm(selectedProduct.id, 'active'); }}
                                         className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-emerald-500/20 flex items-center justify-center gap-3"
                                     >
                                         <IonIcon name="checkmark-circle-outline" className="text-lg" />
                                         Approve
                                     </button>
-                                    <button 
-                                        onClick={() => {
-                                            handleAction(selectedProduct.id, 'rejected');
-                                            setSelectedProduct(null);
-                                        }}
+                                    <button
+                                        onClick={() => { setSelectedProduct(null); openConfirm(selectedProduct.id, 'rejected'); }}
                                         className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-rose-500/20 flex items-center justify-center gap-3"
                                     >
                                         <IonIcon name="ban-outline" className="text-lg" />
@@ -838,38 +918,95 @@ export default function ProductsTable({ title, description, statusFilter }: Prod
                                     </button>
                                 </>
                             ) : statusFilter === 'rejected' ? (
-                                <button 
-                                    onClick={() => {
-                                        handleAction(selectedProduct.id, 'active');
-                                        setSelectedProduct(null);
-                                    }}
+                                <button
+                                    onClick={() => { setSelectedProduct(null); openConfirm(selectedProduct.id, 'active'); }}
                                     className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-emerald-500/20 flex items-center justify-center gap-3"
                                 >
                                     <IonIcon name="checkmark-circle-outline" className="text-lg" />
                                     Approve
                                 </button>
-                            ) : (
-                                <button 
-                                    onClick={() => {
-                                        handleAction(selectedProduct.id, 'inactive');
-                                        setSelectedProduct(null);
-                                    }}
+                            ) : selectedProduct.status === 'active' ? (
+                                <button
+                                    onClick={() => { setSelectedProduct(null); openConfirm(selectedProduct.id, 'inactive'); }}
                                     className="flex-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-purple-500/20 flex items-center justify-center gap-3"
                                 >
                                     <IonIcon name="close-circle-outline" className="text-lg" />
                                     Inactive
                                 </button>
+                            ) : (
+                                <button
+                                    onClick={() => { setSelectedProduct(null); openConfirm(selectedProduct.id, 'active'); }}
+                                    className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-emerald-500/20 flex items-center justify-center gap-3"
+                                >
+                                    <IonIcon name="checkmark-circle-outline" className="text-lg" />
+                                    Activate
+                                </button>
                             )}
-                            <button 
-                                onClick={() => {
-                                    handleAction(selectedProduct.id, 'Delete');
-                                    setSelectedProduct(null);
-                                }}
-                                className="flex-1 bg-white/5 hover:bg-white/10 text-slate-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-white/10 flex items-center justify-center gap-3"
+                            <button
+                                onClick={() => { setSelectedProduct(null); openConfirm(selectedProduct.id, 'Delete'); }}
+                                className="flex-1 bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 font-black text-[10px] uppercase tracking-[0.2em] py-4 rounded-2xl transition-all border border-white/10 hover:border-rose-500/20 flex items-center justify-center gap-3"
                             >
                                 <IonIcon name="trash-outline" className="text-lg" />
                                 Delete
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Confirm Action Modal ── */}
+            {confirmDialog.open && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div
+                        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                        onClick={() => !isProcessing && setConfirmDialog(prev => ({ ...prev, open: false }))}
+                    />
+                    <div className="relative w-full max-w-md bg-[#0c0c0e] border border-white/10 rounded-[2rem] shadow-[0_40px_80px_-10px_rgba(0,0,0,0.9)] z-10 overflow-hidden animate-in zoom-in-95 duration-200">
+                        {/* Top accent bar */}
+                        <div className={`h-1 w-full ${
+                            confirmDialog.action === 'Delete' ? 'bg-red-600' :
+                            confirmDialog.action === 'rejected' ? 'bg-rose-500' :
+                            confirmDialog.action === 'inactive' ? 'bg-purple-500' :
+                            'bg-emerald-500'
+                        }`} />
+
+                        <div className="p-8">
+                            {/* Icon */}
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-6 ${
+                                confirmDialog.action === 'Delete' ? 'bg-red-500/10 text-red-400' :
+                                confirmDialog.action === 'rejected' ? 'bg-rose-500/10 text-rose-400' :
+                                confirmDialog.action === 'inactive' ? 'bg-purple-500/10 text-purple-400' :
+                                'bg-emerald-500/10 text-emerald-400'
+                            }`}>
+                                <IonIcon name={`${confirmDialog.icon}-outline`} />
+                            </div>
+
+                            {/* Title & Message */}
+                            <h2 className="text-xl font-black text-white mb-2">{confirmDialog.title}</h2>
+                            <p className="text-sm text-slate-400 leading-relaxed">{confirmDialog.message}</p>
+
+                            {/* Actions */}
+                            <div className="flex gap-3 mt-8">
+                                <button
+                                    onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+                                    disabled={isProcessing}
+                                    className="flex-1 py-3.5 rounded-2xl bg-white/5 border border-white/10 text-slate-300 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmedAction}
+                                    disabled={isProcessing}
+                                    className={`flex-1 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-60 flex items-center justify-center gap-2 ${confirmDialog.confirmClass}`}
+                                >
+                                    {isProcessing ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            Processing...
+                                        </>
+                                    ) : confirmDialog.confirmLabel}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
