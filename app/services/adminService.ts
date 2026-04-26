@@ -1,6 +1,5 @@
+const API_URL = '/api';
 const isClient = typeof window !== 'undefined';
-const API_URL = process.env.NEXT_PUBLIC_API_URL ||
-    (isClient && window.location.hostname !== 'localhost' ? '/api' : 'http://localhost:5000/api');
 
 const storage = {
     get: (key: string) => {
@@ -14,6 +13,9 @@ const safeJson = async (response: Response) => {
     if (contentType && contentType.includes("application/json")) {
         return await response.json();
     }
+    // For non-JSON responses (plain text errors), wrap in message object
+    const text = await response.text().catch(() => '');
+    if (text) return { message: text };
     return null;
 };
 
@@ -143,6 +145,62 @@ export const adminService = {
         return result;
     },
 
+    // Ads Management
+    fetchAllAds: async (status?: string) => {
+        let url = `${API_URL}/ads/all`;
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+
+        const queryString = params.toString();
+        if (queryString) url += `?${queryString}`;
+
+        const response = await fetch(url, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch ads');
+        return result;
+    },
+
+    updateAdStatus: async (adId: string, status: string, options?: { rejectionReason?: string; rejectionNote?: string }) => {
+        const response = await fetch(`${API_URL}/ads/${adId}/status`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({ status, ...(options || {}) }),
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to update ad status');
+        return result;
+    },
+
+    // Order Management
+    fetchAllOrders: async (status?: string) => {
+        let url = `${API_URL}/order/all`;
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+
+        const queryString = params.toString();
+        if (queryString) url += `?${queryString}`;
+
+        const response = await fetch(url, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch orders');
+        return result?.data || result;
+    },
+
+    updateAdminOrderStatus: async (orderId: string | number, status: string) => {
+        const response = await fetch(`${API_URL}/order/${orderId}/admin-status`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({ status }),
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to update order status');
+        return result?.data || result;
+    },
+
     // Post Management
     addTestLink: async (link: string) => {
         const response = await fetch(`${API_URL}/posts/test-link`, {
@@ -163,6 +221,15 @@ export const adminService = {
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch stats');
         return result;
+    },
+
+    fetchRecentActivity: async () => {
+        const response = await fetch(`${API_URL}/admin/recent-activity`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch activity');
+        return result || [];
     },
 
     transferGoogerToAdmin: async (adminId: number, amount: number) => {

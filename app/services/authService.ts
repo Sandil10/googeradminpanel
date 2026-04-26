@@ -1,6 +1,6 @@
 const isClient = typeof window !== 'undefined';
-// Automatically detect if we should use the relative /api path (Vercel) or local dev path
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+// Uses Next.js rewrites to proxy /api/* -> http://localhost:5000/api/*
+const API_URL = '/api';
 
 // Safe storage wrapper for Safari/iPhone compatibility
 const storage = {
@@ -35,13 +35,6 @@ const safeJson = async (response: Response) => {
 export const authService = {
     login: async (data: any) => {
         try {
-            const isProd = isClient && window.location.hostname !== 'localhost';
-
-            // If we are on production but API is localhost, warn clearly
-            if (isProd && API_URL.includes('localhost')) {
-                throw new Error('API not configured. Please set NEXT_PUBLIC_API_URL in Vercel.');
-            }
-
             const response = await fetch(`${API_URL}/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -69,11 +62,6 @@ export const authService = {
 
     register: async (data: any) => {
         try {
-            const isProd = isClient && window.location.hostname !== 'localhost';
-            if (isProd && API_URL.includes('localhost')) {
-                throw new Error('API not configured for production.');
-            }
-
             const response = await fetch(`${API_URL}/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

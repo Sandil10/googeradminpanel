@@ -43,6 +43,8 @@ interface ProductsTableProps {
     description: string;
     statusFilter?: string;
     userId?: string;
+    itemLabelSingular?: string;
+    itemLabelPlural?: string;
 }
 
 interface ConfirmDialog {
@@ -56,7 +58,14 @@ interface ConfirmDialog {
     icon: string;
 }
 
-export default function ProductsTable({ title, description, statusFilter, userId }: ProductsTableProps) {
+export default function ProductsTable({
+    title,
+    description,
+    statusFilter,
+    userId,
+    itemLabelSingular = "Product",
+    itemLabelPlural = "Products",
+}: ProductsTableProps) {
     const pathname = usePathname();
     const router = useRouter();
     const [products, setProducts] = useState<Product[]>([]);
@@ -73,6 +82,8 @@ export default function ProductsTable({ title, description, statusFilter, userId
         open: false, productId: null, action: '', title: '', message: '', confirmLabel: '', confirmClass: '', icon: ''
     });
     const [isProcessing, setIsProcessing] = useState(false);
+    const itemLabelLower = itemLabelSingular.toLowerCase();
+    const itemLabelPluralLower = itemLabelPlural.toLowerCase();
 
     const cleanImageUrl = (url: string) => {
         if (!url) return '';
@@ -135,21 +146,26 @@ export default function ProductsTable({ title, description, statusFilter, userId
         }
     };
 
-    const loadProducts = async () => {
+    const loadProducts = async (isPolling = false) => {
         try {
-            setLoading(true);
+            if (!isPolling) setLoading(true);
             const data = await adminService.fetchAllProducts(statusFilter, userId);
             setProducts(data || []);
+            setError(null); // clear any previous error on success
         } catch (err: any) {
             console.error(err);
-            setError(err.message);
+            // Only surface error to UI on initial load; silent fail on poll
+            if (!isPolling) setError(err.message);
         } finally {
-            setLoading(false);
+            if (!isPolling) setLoading(false);
         }
     };
 
     useEffect(() => {
-        loadProducts();
+        loadProducts(false);
+        // Real-time: poll for fresh data every 30 seconds (silent, no loading spinner)
+        const interval = setInterval(() => loadProducts(true), 30000);
+        return () => clearInterval(interval);
     }, [statusFilter]);
 
     const filteredProducts = products.filter(p => {
@@ -186,29 +202,29 @@ export default function ProductsTable({ title, description, statusFilter, userId
     const openConfirm = (productId: number, action: string) => {
         const configs: Record<string, Omit<ConfirmDialog, 'open' | 'productId' | 'action'>> = {
             inactive: {
-                title: 'Deactivate Product',
-                message: 'This will hide the product from the marketplace. The seller will be notified. You can re-activate it at any time.',
+                title: `Deactivate ${itemLabelSingular}`,
+                message: `This will hide the ${itemLabelLower} from the marketplace. The seller will be notified. You can re-activate it at any time.`,
                 confirmLabel: 'Deactivate',
                 confirmClass: 'bg-purple-600 hover:bg-purple-500 text-white',
                 icon: 'close-circle',
             },
             active: {
-                title: 'Activate Product',
-                message: 'This will make the product visible and purchasable in the marketplace immediately.',
+                title: `Activate ${itemLabelSingular}`,
+                message: `This will make the ${itemLabelLower} visible and purchasable in the marketplace immediately.`,
                 confirmLabel: 'Activate',
                 confirmClass: 'bg-emerald-600 hover:bg-emerald-500 text-white',
                 icon: 'checkmark-circle',
             },
             rejected: {
-                title: 'Reject Product',
-                message: 'This product will be rejected and moved to the rejected section. The seller will be notified.',
+                title: `Reject ${itemLabelSingular}`,
+                message: `This ${itemLabelLower} will be rejected and moved to the rejected section. The seller will be notified.`,
                 confirmLabel: 'Reject',
                 confirmClass: 'bg-rose-600 hover:bg-rose-500 text-white',
                 icon: 'ban',
             },
             Delete: {
-                title: 'Delete Product',
-                message: 'This will permanently delete the product and all its data. This action cannot be undone.',
+                title: `Delete ${itemLabelSingular}`,
+                message: `This will permanently delete the ${itemLabelLower} and all its data. This action cannot be undone.`,
                 confirmLabel: 'Delete Permanently',
                 confirmClass: 'bg-red-700 hover:bg-red-600 text-white',
                 icon: 'trash',
@@ -321,15 +337,35 @@ export default function ProductsTable({ title, description, statusFilter, userId
                 </div>
             </div>
 
-            <div className="bg-[#09090b] border border-[#1a1a1a] rounded-[1.5rem] md:rounded-[2rem] relative min-h-[500px] md:min-h-[700px] shadow-2xl overflow-hidden">
+            {/* Error Banner */}
+            {error && !loading && (
+                <div className="flex items-center justify-between gap-4 px-5 py-4 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                    <div className="flex items-center gap-3">
+                        <IonIcon name="warning-outline" className="text-rose-400 text-xl shrink-0" />
+                        <div>
+                            <p className="text-xs font-black text-rose-400 uppercase tracking-widest">Failed to load products</p>
+                            <p className="text-xs text-rose-300/70 font-medium mt-0.5">{error}</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => loadProducts(false)}
+                        className="h-8 px-4 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/30 transition-all shrink-0 flex items-center gap-1.5"
+                    >
+                        <IonIcon name="refresh-outline" className="text-xs" />
+                        Retry
+                    </button>
+                </div>
+            )}
+
+            <div className="bg-[#050505] border border-white/5 rounded-[2rem] relative min-h-[360px] shadow-2xl overflow-hidden">
                 {loading && (
                     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center rounded-[2rem]">
                         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-white"></div>
                     </div>
                 )}
                 
-                <div className="p-6 border-b border-[#1a1a1a] flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="relative flex-1 max-w-md group">
+                <div className="flex flex-col justify-between gap-4 border-b border-white/6 p-4 sm:p-5 lg:flex-row lg:items-center">
+                    <div className="relative flex-1 group lg:max-w-md">
                         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
                             <IonIcon name="search-outline" className="text-lg" />
                         </div>
@@ -338,14 +374,14 @@ export default function ProductsTable({ title, description, statusFilter, userId
                             placeholder="Search PID, User ID, or Seller Name..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-[#0c0c0e] border border-white/5 rounded-2xl py-3.5 pl-12 pr-4 text-xs font-medium text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/30 focus:ring-4 focus:ring-blue-500/5 transition-all"
+                            className="w-full bg-white/[0.04] border border-white/8 rounded-[1.2rem] py-3 pl-12 pr-4 text-xs font-medium text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/30 focus:ring-4 focus:ring-blue-500/5 transition-all"
                         />
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
                         <div className="relative">
                             <button 
                                 onClick={() => setIsSortOpen(!isSortOpen)}
-                                className="h-11 px-4 rounded-2xl bg-[#0c0c0e] border border-white/5 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:border-blue-500/30 transition-all flex items-center gap-2"
+                                className="h-10 px-4 rounded-[1.1rem] bg-white/[0.04] border border-white/8 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:border-blue-500/30 transition-all flex items-center gap-2"
                             >
                                 <IonIcon name="swap-vertical-outline" className="text-sm" />
                                 {sortBy === 'newest' ? 'Newest First' : sortBy === 'oldest' ? 'Oldest First' : 'Date Modified'}
@@ -354,7 +390,7 @@ export default function ProductsTable({ title, description, statusFilter, userId
                             {isSortOpen && (
                                 <>
                                     <div className="fixed inset-0 z-[60]" onClick={() => setIsSortOpen(false)}></div>
-                                    <div className="absolute right-0 top-full mt-2 w-48 bg-[#0c0c0e] border border-white/10 rounded-2xl shadow-2xl z-[70] py-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                    <div className="absolute right-0 top-full mt-2 w-48 bg-[#0c0c0e] border border-white/10 rounded-[1.2rem] shadow-2xl z-[70] py-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                                         <button 
                                             onClick={() => { setSortBy("newest"); setIsSortOpen(false); }}
                                             className={`w-full flex items-center gap-3 px-5 py-3 text-[10px] font-black uppercase tracking-widest transition-colors ${sortBy === 'newest' ? 'text-blue-400 bg-white/5' : 'text-slate-400 hover:bg-white/5'}`}
@@ -377,165 +413,167 @@ export default function ProductsTable({ title, description, statusFilter, userId
                                 </>
                             )}
                         </div>
-                        <div className="px-4 py-2 h-11 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3">
+                        <div className="px-4 py-2 h-10 rounded-[1.1rem] bg-white/[0.04] border border-white/8 flex items-center gap-3">
                             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{sortedProducts.length} Results</span>
                         </div>
                     </div>
                 </div>
 
-                <div className="w-full overflow-x-auto custom-scrollbar">
-                    <table className="w-full text-left min-w-[800px]">
-                        <thead>
-                            <tr className="bg-[#1a1a1a]/50 text-slate-300 text-[9px] font-black uppercase tracking-[0.2em]">
-                                <th className="px-2 py-5 w-auto">Product Details</th>
-                                <th className="px-2 py-5 w-[200px]">Seller</th>
-                                <th className="px-2 py-5 text-right w-[400px]">Moderation Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#1a1a1a]">
-                            {filteredProducts.length === 0 && !loading ? (
-                                <tr>
-                                    <td colSpan={7} className="px-6 py-20 text-center text-slate-500 font-medium italic">
-                                        {searchTerm ? (
-                                            <div className="flex flex-col items-center gap-3">
-                                                <IonIcon name="search-outline" className="text-4xl text-slate-700" />
-                                                <p>No matches found for <span className="text-white">"{searchTerm}"</span></p>
-                                                <button onClick={() => setSearchTerm("")} className="text-blue-400 font-bold hover:underline">Clear Search</button>
+                <div className="p-4 sm:p-5">
+                    {filteredProducts.length === 0 && !loading ? (
+                        <div className="px-6 py-20 text-center text-slate-500 font-medium italic">
+                            {searchTerm ? (
+                                <div className="flex flex-col items-center gap-3">
+                                    <IonIcon name="search-outline" className="text-4xl text-slate-700" />
+                                    <p>No matches found for <span className="text-white">"{searchTerm}"</span></p>
+                                    <button onClick={() => setSearchTerm("")} className="text-blue-400 font-bold hover:underline">Clear Search</button>
+                                </div>
+                            ) : `No ${itemLabelPluralLower} found in this section.`}
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {sortedProducts.map((product) => (
+                                <div
+                                    key={product.id}
+                                    className="rounded-[1.7rem] border border-white/8 bg-[#151515] px-3 py-3 shadow-[0_20px_50px_rgba(0,0,0,0.22)] transition-all"
+                                >
+                                    <div className="flex flex-col gap-3 sm:flex-row">
+                                        <div
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openProductDetails(product);
+                                            }}
+                                            className="relative h-[160px] w-full shrink-0 overflow-hidden rounded-[1.2rem] border border-white/5 bg-black cursor-pointer group/thumb sm:h-[78px] sm:w-[78px]"
+                                        >
+                                            {(() => {
+                                                const imgUrl = getPrimaryImage(product.image_url);
+                                                if (!imgUrl) {
+                                                    return (
+                                                        <div className="flex h-full w-full items-center justify-center text-slate-700 text-xl">
+                                                            <IonIcon name="image-outline" />
+                                                        </div>
+                                                    );
+                                                }
+                                                if (imgUrl.startsWith('data:')) {
+                                                    return (
+                                                        <img
+                                                            src={imgUrl}
+                                                            alt={product.title}
+                                                            className="h-full w-full object-cover group-hover/thumb:scale-110 transition-transform duration-500"
+                                                        />
+                                                    );
+                                                }
+                                                return (
+                                                    <Image
+                                                        src={imgUrl}
+                                                        alt={product.title}
+                                                        fill
+                                                        sizes="78px"
+                                                        className="object-cover group-hover/thumb:scale-110 transition-transform duration-500"
+                                                    />
+                                                );
+                                            })()}
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover/thumb:opacity-100">
+                                                <IonIcon name="expand-outline" className="text-sm text-white" />
                                             </div>
-                                        ) : "No products found in this category."}
-                                    </td>
-                                </tr>
-                            ) : (
-                                sortedProducts.map((product) => (
-                                    <tr key={product.id} className="hover:bg-white/[0.02] transition-all group border-b border-[#1a1a1a]">
-                                        <td className="px-2 py-6">
-                                            <div className="flex items-start gap-5">
-                                                <div 
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        openProductDetails(product);
-                                                    }}
-                                                    className="w-20 h-20 rounded-2xl bg-black border border-white/5 flex items-center justify-center text-slate-700 text-xl shrink-0 cursor-pointer hover:border-white/20 transition-all overflow-hidden relative group/thumb"
-                                                >
-                                                    {(() => {
-                                                        const imgUrl = getPrimaryImage(product.image_url);
-                                                        if (!imgUrl) return <IonIcon name="image-outline" />;
-                                                        if (imgUrl.startsWith('data:')) {
-                                                            return (
-                                                                <img
-                                                                    src={imgUrl}
-                                                                    alt={product.title}
-                                                                    className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform duration-500"
-                                                                />
-                                                            );
-                                                        }
-                                                        return (
-                                                            <Image
-                                                                src={imgUrl}
-                                                                alt={product.title}
-                                                                fill
-                                                                sizes="80px"
-                                                                className="object-cover group-hover/thumb:scale-110 transition-transform duration-500"
-                                                            />
-                                                        );
-                                                    })()}
-                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center">
-                                                        <IonIcon name="expand-outline" className="text-white text-sm" />
+                                        </div>
+
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-[13px] font-black text-white">{renderSafe(product.title)}</p>
+                                                    <p className="mt-1 text-[8px] font-black uppercase tracking-[0.18em] text-white/35">PID-{product.id}</p>
+                                                </div>
+                                                <span className={`w-fit rounded-lg px-2 py-1 text-[8px] font-black uppercase tracking-[0.14em] ${
+                                                    product.status === 'active'
+                                                        ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                                                        : product.status === 'pending' || product.status === 'review' || product.status === 'reviewing'
+                                                            ? 'border border-violet-500/20 bg-violet-500/10 text-violet-300'
+                                                            : 'border border-rose-500/20 bg-rose-500/10 text-rose-300'
+                                                }`}>
+                                                    {product.status}
+                                                </span>
+                                            </div>
+
+                                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-white/60">
+                                                <span>R {parseFloat(product.price || '0').toLocaleString()}</span>
+                                                <span>{product.category || 'Uncategorized'}</span>
+                                                <span>{product.created_at ? new Date(product.created_at).toLocaleDateString() : '-'}</span>
+                                            </div>
+
+                                            <div className="mt-2 grid gap-2 md:grid-cols-2">
+                                                <div className="rounded-[1rem] border border-white/6 bg-white/[0.03] px-3 py-2">
+                                                    <p className="text-[8px] font-black uppercase tracking-[0.14em] text-white/32">Seller Side</p>
+                                                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[8px] font-black uppercase tracking-[0.12em] text-white/38">
+                                                        <Link href={`/admin/users/${product.user_id}?returnTo=${pathname}&from=${encodeURIComponent(itemLabelPlural)}`} className="whitespace-nowrap text-white/82 hover:text-white">
+                                                            Seller Name: {renderSafe(product.username) || 'Unknown'}
+                                                        </Link>
+                                                        <span className="whitespace-nowrap">Seller ID: <span className="text-white/82">{product.seller_id || product.user_id}</span></span>
                                                     </div>
                                                 </div>
-                                                <div className="min-w-0 space-y-2">
-                                                    <div>
-                                                        <p className="font-bold text-white group-hover:text-blue-400 transition-colors text-sm mb-0.5">{renderSafe(product.title)}</p>
-                                                        <p className="text-[10px] text-slate-400 font-mono uppercase tracking-tighter">PID-{product.id}</p>
-                                                    </div>
-                                                    
-                                                    <div className="flex flex-col gap-1.5 mt-2">
-                                                        <span className="text-xs font-bold text-white">R {parseFloat(product.price || '0').toLocaleString()}</span>
-                                                        <span className="text-[11px] text-slate-200 uppercase tracking-widest">{product.category || 'Uncategorized'}</span>
-                                                        <span className={`text-[11px] uppercase tracking-widest font-black ${
-                                                            product.status === 'active' ? 'text-emerald-400' : 
-                                                            product.status === 'pending' || product.status === 'review' || product.status === 'reviewing' ? 'text-purple-400' : 
-                                                            'text-rose-400'
-                                                        }`}>
-                                                            {product.status}
-                                                        </span>
-                                                        <span className="text-[11px] text-slate-400 font-medium">
-                                                            {product.created_at ? new Date(product.created_at).toLocaleDateString() : '-'}
-                                                        </span>
+
+                                                <div className="rounded-[1rem] border border-white/6 bg-white/[0.03] px-3 py-2">
+                                                    <p className="text-[8px] font-black uppercase tracking-[0.14em] text-white/32">{itemLabelSingular} Details</p>
+                                                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[8px] font-black uppercase tracking-[0.12em] text-white/38">
+                                                        <span className="whitespace-nowrap">Views: <span className="text-white/82">{product.views || 0}</span></span>
+                                                        <span className="whitespace-nowrap">Stock: <span className="text-white/82">{product.stock ?? '-'}</span></span>
                                                     </div>
                                                 </div>
                                             </div>
-                                        </td>
-                                        <td className="px-2 py-4">
-                                            <div className="flex flex-col">
-                                                <Link href={`/admin/users/${product.user_id}?returnTo=${pathname}&from=Products`} className="text-white hover:text-blue-400 font-bold text-sm tracking-tight transition-colors">
-                                                    {renderSafe(product.username) || 'Unknown'}
-                                                </Link>
-                                                <span className="text-[10px] text-slate-400 font-mono uppercase tracking-widest mt-1">ID: {product.seller_id || product.user_id}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-2 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
+
+                                            <div className="mt-3 flex flex-wrap items-center gap-1.5">
                                                 {(statusFilter === 'reviewing' || statusFilter === 'review') ? (
                                                     <>
                                                         <button
                                                             onClick={() => openConfirm(product.id, 'active')}
-                                                            className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                            className="inline-flex h-7 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[7px] font-black uppercase tracking-widest text-emerald-400 transition-all hover:bg-emerald-500/20"
                                                         >
-                                                            <IonIcon name="checkmark-circle-outline" className="text-xs" />
                                                             Approve
                                                         </button>
                                                         <button
                                                             onClick={() => openConfirm(product.id, 'rejected')}
-                                                            className="h-8 px-3 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-400 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+                                                            className="inline-flex h-7 items-center justify-center rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 text-[7px] font-black uppercase tracking-widest text-rose-400 transition-all hover:bg-rose-500/20"
                                                         >
-                                                            <IonIcon name="ban-outline" className="text-xs" />
                                                             Reject
                                                         </button>
                                                     </>
                                                 ) : statusFilter === 'rejected' ? (
                                                     <button
                                                         onClick={() => openConfirm(product.id, 'active')}
-                                                        className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                        className="inline-flex h-7 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[7px] font-black uppercase tracking-widest text-emerald-400 transition-all hover:bg-emerald-500/20"
                                                     >
-                                                        <IonIcon name="checkmark-circle-outline" className="text-xs" />
                                                         Approve
                                                     </button>
                                                 ) : (
-                                                    // Smart: show buttons based on each product's own status
                                                     <>
                                                         {(product.status === 'reviewing' || product.status === 'review' || product.status === 'pending') ? (
                                                             <>
                                                                 <button
                                                                     onClick={() => openConfirm(product.id, 'active')}
-                                                                    className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                                    className="inline-flex h-7 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[7px] font-black uppercase tracking-widest text-emerald-400 transition-all hover:bg-emerald-500/20"
                                                                 >
-                                                                    <IonIcon name="checkmark-circle-outline" className="text-xs" />
                                                                     Approve
                                                                 </button>
                                                                 <button
                                                                     onClick={() => openConfirm(product.id, 'rejected')}
-                                                                    className="h-8 px-3 rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-400 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-all flex items-center gap-1.5"
+                                                                    className="inline-flex h-7 items-center justify-center rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 text-[7px] font-black uppercase tracking-widest text-rose-400 transition-all hover:bg-rose-500/20"
                                                                 >
-                                                                    <IonIcon name="ban-outline" className="text-xs" />
                                                                     Reject
                                                                 </button>
                                                             </>
                                                         ) : product.status === 'active' ? (
                                                             <button
                                                                 onClick={() => openConfirm(product.id, 'inactive')}
-                                                                className="h-8 px-3 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-400 text-[9px] font-black uppercase tracking-widest hover:bg-purple-500/20 transition-all flex items-center gap-1.5"
+                                                                className="inline-flex h-7 items-center justify-center rounded-lg border border-purple-500/20 bg-purple-500/10 px-2.5 text-[7px] font-black uppercase tracking-widest text-purple-400 transition-all hover:bg-purple-500/20"
                                                             >
-                                                                <IonIcon name="close-circle-outline" className="text-xs" />
                                                                 Deactivate
                                                             </button>
                                                         ) : (
                                                             <button
                                                                 onClick={() => openConfirm(product.id, 'active')}
-                                                                className="h-8 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center gap-1.5"
+                                                                className="inline-flex h-7 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[7px] font-black uppercase tracking-widest text-emerald-400 transition-all hover:bg-emerald-500/20"
                                                             >
-                                                                <IonIcon name="checkmark-circle-outline" className="text-xs" />
                                                                 Activate
                                                             </button>
                                                         )}
@@ -543,42 +581,40 @@ export default function ProductsTable({ title, description, statusFilter, userId
                                                 )}
                                                 <button
                                                     onClick={() => openConfirm(product.id, 'Delete')}
-                                                    className="h-8 px-3 rounded-lg bg-white/5 text-slate-400 border border-white/10 text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/20 transition-all flex items-center gap-1.5"
+                                                    className="inline-flex h-7 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2.5 text-[7px] font-black uppercase tracking-widest text-slate-400 transition-all hover:border-rose-500/20 hover:bg-rose-500/10 hover:text-rose-400"
                                                 >
-                                                    <IonIcon name="trash-outline" className="text-xs" />
                                                     Delete
                                                 </button>
                                             </div>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Product Details Modal */}
+            {/* Item Details Modal */}
             {selectedProduct && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 md:p-10 animate-in fade-in duration-300">
                     <div className="absolute inset-0 bg-black/95" onClick={() => setSelectedProduct(null)}></div>
                     
-                    <div className="relative w-full max-w-2xl bg-[#0c0c0e] rounded-[2.5rem] overflow-hidden border border-white/10 shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] z-[110] flex flex-col max-h-[90vh]">
+                    <div className="relative z-[110] flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2.5rem] border border-white/10 bg-[#0c0c0e] shadow-[0_50px_100px_-20px_rgba(0,0,0,1)]">
                         {/* Modal Header */}
-                        <div className="p-6 md:p-8 flex justify-between items-center border-b border-white/5">
-                            <div className="flex items-center gap-4">
+                        <div className="flex flex-col gap-4 border-b border-white/5 p-4 sm:p-6 md:flex-row md:items-center md:justify-between md:p-8">
+                            <div className="flex min-w-0 items-center gap-4">
                                 <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center border border-blue-500/30 overflow-hidden">
                                     <IonIcon name="person" className="text-blue-400" />
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Seller Profile</p>
-                                    <Link href={`/admin/users/${selectedProduct.user_id}?returnTo=${pathname}&from=Products`} className="text-sm font-bold text-white hover:text-blue-400 hover:underline transition-colors mt-0.5 inline-block">
+                                    <Link href={`/admin/users/${selectedProduct.user_id}?returnTo=${pathname}&from=${encodeURIComponent(itemLabelPlural)}`} className="text-sm font-bold text-white hover:text-blue-400 hover:underline transition-colors mt-0.5 inline-block">
                                         {selectedProduct.username}
                                     </Link>
                                 </div>
                             </div>
-                             <div className="flex-1"></div>
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center justify-between gap-3 sm:justify-end md:min-w-[180px]">
                                 <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
                                     selectedProduct.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
                                     selectedProduct.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
@@ -596,8 +632,8 @@ export default function ProductsTable({ title, description, statusFilter, userId
                         </div>
 
                         {/* Modal Content - Scrollable */}
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 space-y-8">
-                            {/* Product Title & Categories */}
+                        <div className="custom-scrollbar flex-1 space-y-8 overflow-y-auto p-4 sm:p-6 md:p-8">
+                            {/* Item Title & Categories */}
                             <div className="space-y-4">
                                 <h2 className="text-2xl font-black text-white leading-tight uppercase tracking-tight">{selectedProduct.title}</h2>
                                 <div className="flex flex-wrap gap-2">
@@ -712,7 +748,7 @@ export default function ProductsTable({ title, description, statusFilter, userId
                                 </div>
                             </div>
 
-                            {/* Product Description */}
+                            {/* Item Description */}
                             <div className="space-y-4">
                                 <div className="flex items-center gap-3">
                                     <div className="h-px flex-1 bg-white/5"></div>
@@ -896,7 +932,7 @@ export default function ProductsTable({ title, description, statusFilter, userId
                         </div>
 
                         {/* Modal Footer Actions */}
-                         <div className="p-6 md:p-8 border-t border-white/5 flex gap-4 bg-black/20">
+                         <div className="flex flex-col gap-4 border-t border-white/5 bg-black/20 p-4 sm:p-6 md:flex-row md:p-8">
                             {(statusFilter === 'reviewing' || statusFilter === 'review') ? (
                                 <>
                                     <button
@@ -953,7 +989,7 @@ export default function ProductsTable({ title, description, statusFilter, userId
 
             {/* ── Confirm Action Modal ── */}
             {confirmDialog.open && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
                     <div
                         className="absolute inset-0 bg-black/80 backdrop-blur-sm"
                         onClick={() => !isProcessing && setConfirmDialog(prev => ({ ...prev, open: false }))}
@@ -967,7 +1003,7 @@ export default function ProductsTable({ title, description, statusFilter, userId
                             'bg-emerald-500'
                         }`} />
 
-                        <div className="p-8">
+                        <div className="p-5 sm:p-8">
                             {/* Icon */}
                             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-6 ${
                                 confirmDialog.action === 'Delete' ? 'bg-red-500/10 text-red-400' :
@@ -983,7 +1019,7 @@ export default function ProductsTable({ title, description, statusFilter, userId
                             <p className="text-sm text-slate-400 leading-relaxed">{confirmDialog.message}</p>
 
                             {/* Actions */}
-                            <div className="flex gap-3 mt-8">
+                            <div className="mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row">
                                 <button
                                     onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
                                     disabled={isProcessing}

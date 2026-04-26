@@ -43,32 +43,27 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
   const [transferLoading, setTransferLoading] = useState(false);
 
   useEffect(() => {
-    const loadInitialData = async () => {
+    const loadInitialData = async (isPolling = false) => {
       try {
-        setLoading(true);
+        if (!isPolling) setLoading(true);
         const [usersData, statsData] = await Promise.all([
           adminService.fetchAllUsers(),
           adminService.fetchStats().catch(() => null)
         ]);
         setUsers(usersData || []);
         setStats(statsData);
+        if (!isPolling) setError(null);
       } catch (err: any) {
         console.error(err);
-        setError(err.message);
-        
-        // Fallback to mock data if API fails
-        const mockUsers: User[] = [
-          { id: 1, user_id: "2160", username: "test", full_name: "test user", user_type: "User", email: "test@example.com", wallet_balance: "1210.00", status: 'Active', created_at: new Date().toISOString() },
-          { id: 2, user_id: "9258", username: "test1", full_name: "test1 user", user_type: "Seller", email: "test1@example.com", wallet_balance: "790.50", status: 'Active', created_at: new Date().toISOString() },
-          { id: 3, user_id: "7800", username: "sandildilmi", full_name: "Sandil Dilmi", user_type: "User", email: "sandil@example.com", wallet_balance: "1000.00", status: 'Active', created_at: new Date().toISOString() },
-        ];
-        setUsers(mockUsers);
+        if (!isPolling) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!isPolling) setLoading(false);
       }
     };
 
-    loadInitialData();
+    loadInitialData(false);
+    const interval = setInterval(() => loadInitialData(true), 30000);
+    return () => clearInterval(interval);
   }, [userTypeFilter]);
 
   const typeFilteredUsers = userTypeFilter 

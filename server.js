@@ -51,6 +51,8 @@ const postRoutes = require('./routes/posts');
 const walletRoutes = require('./routes/wallet');
 const marketRoutes = require('./routes/market');
 const orderRoutes = require('./routes/order');
+const adsRoutes = require('./routes/ads');
+const chatRoutes = require('./routes/chat');
 
 const adminRoutes = require('./routes/admin');
 
@@ -62,6 +64,8 @@ app.use('/api/posts', postRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/order', orderRoutes);
+app.use('/api/ads', adsRoutes);
+app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Basic route

@@ -5,9 +5,9 @@ const pool = require('../config/database');
 router.get('/stats', async (req, res) => {
     try {
         const usersCount = await pool.query('SELECT COUNT(*) FROM users');
-        const sellersCount = await pool.query("SELECT COUNT(*) FROM users WHERE user_type = 'seller'");
-        const pendingProducts = await pool.query("SELECT COUNT(*) FROM market WHERE status = 'pending' OR status = 'reviewing'");
-        const totalBalance = await pool.query("SELECT SUM(wallet_balance) FROM users");
+        const sellersCount = await pool.query("SELECT COUNT(*) FROM users WHERE LOWER(user_type) = 'seller'");
+        const pendingProducts = await pool.query("SELECT COUNT(*) FROM market WHERE status IN ('pending', 'reviewing')");
+        const totalBalance = await pool.query('SELECT SUM(wallet_balance) FROM users');
         const commissions = await pool.query("SELECT SUM(commission) FROM wallet_transfers WHERE status = 'accepted'");
 
         res.json({
@@ -19,9 +19,62 @@ router.get('/stats', async (req, res) => {
         });
     } catch (err) {
         console.error(err);
-        res.status(500).send(err.message);
+        res.status(500).json({ message: err.message });
     }
 });
+
+// Recent activity feed for the dashboard
+router.get('/recent-activity', async (req, res) => {
+    try {
+        const transfers = await pool.query(`
+            SELECT 
+                t.id, t.type, t.amount, t.status, t.note, t.created_at,
+                u.username as sender_username, u.full_name as sender_name
+            FROM wallet_transfers t
+            LEFT JOIN users u ON t.sender_id = u.id
+            ORDER BY t.created_at DESC
+            LIMIT 8
+        `);
+
+        const products = await pool.query(`
+            SELECT 
+                m.id, m.title, m.status, m.created_at,
+                COALESCE(u.username, m.username) as seller_username,
+                COALESCE(u.full_name, m.username) as seller_name
+            FROM market m
+            LEFT JOIN users u ON m.user_id = u.id
+            ORDER BY m.created_at DESC
+            LIMIT 8
+        `);
+
+        // Merge and sort by created_at
+        const activity = [
+            ...transfers.rows.map(r => ({
+                id: `t-${r.id}`,
+                kind: r.type === 'request' ? 'Top-up Request' : r.type === 'sell' ? 'Sale Transaction' : 'Wallet Transfer',
+                user: r.sender_name || r.sender_username || 'Unknown',
+                detail: `R ${parseFloat(r.amount || 0).toFixed(2)}`,
+                status: r.status,
+                created_at: r.created_at,
+            })),
+            ...products.rows.map(r => ({
+                id: `p-${r.id}`,
+                kind: r.status === 'reviewing' ? 'Product Review' : r.status === 'active' ? 'Product Listed' : 'Product Update',
+                user: r.seller_name || r.seller_username || 'Unknown',
+                detail: r.title,
+                status: r.status,
+                created_at: r.created_at,
+            })),
+        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+         .slice(0, 6);
+
+        res.json(activity);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 
 router.post('/transfer-googer-to-admin', async (req, res) => {
     const client = await pool.connect();

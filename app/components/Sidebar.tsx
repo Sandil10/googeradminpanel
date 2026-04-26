@@ -30,6 +30,8 @@ const menuItems = [
             { name: "Deactivated Products", href: "/admin/products/deactivated" },
         ]
     },
+    { name: "Ads", icon: "megaphone", href: "/admin/products/ads" },
+    { name: "Product Status", icon: "bag-check", href: "/admin/products/ads/product-status" },
     { name: "Posts", icon: "document-text", href: "/admin/posts" },
     { name: "Percentage Customization", icon: "options", href: "/admin/customization" },
     { name: "Verification", icon: "checkmark-circle", href: "/admin/verification" },
@@ -106,7 +108,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
 
     return (
         <aside
-            className={`fixed left-0 top-0 h-screen bg-black text-white flex flex-col border-r border-[#1a1a1a] z-50 transition-all duration-300 md:translate-x-0 
+            className={`fixed left-0 top-0 z-50 flex h-screen max-w-[88vw] flex-col overflow-hidden border-r border-[#1a1a1a] bg-black text-white transition-all duration-300 md:translate-x-0 
                 ${isMobileOpen ? "translate-x-0 w-64 shadow-[20px_0_60px_rgba(0,0,0,0.8)]" : "-translate-x-full w-64"} 
                 ${isCollapsed ? "md:w-20" : "md:w-64"}
             `}
@@ -148,7 +150,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1 custom-scrollbar">
+            <nav className="custom-scrollbar flex-1 space-y-1 overflow-y-auto px-3 py-4 sm:px-4">
                 {menuItems.map((item) => {
                     const hasChildren = !!item.children;
                     const isOpen = openMenus.includes(item.name);
