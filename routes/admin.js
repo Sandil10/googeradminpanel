@@ -1,21 +1,40 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const authMiddleware = require('../middleware/auth');
+const adminOnly = require('../middleware/adminOnly');
+
+router.use(authMiddleware, adminOnly);
 
 router.get('/stats', async (req, res) => {
     try {
-        const usersCount = await pool.query('SELECT COUNT(*) FROM users');
-        const sellersCount = await pool.query("SELECT COUNT(*) FROM users WHERE LOWER(user_type) = 'seller'");
-        const pendingProducts = await pool.query("SELECT COUNT(*) FROM market WHERE status IN ('pending', 'reviewing')");
-        const totalBalance = await pool.query('SELECT SUM(wallet_balance) FROM users');
-        const commissions = await pool.query("SELECT SUM(commission) FROM wallet_transfers WHERE status = 'accepted'");
+        const [usersCount, sellersCount, pendingProducts, totalBalance, commissions, coinCollect, adPublish, capital] = await Promise.all([
+            pool.query('SELECT COUNT(*) FROM users'),
+            pool.query("SELECT COUNT(*) FROM users WHERE LOWER(user_type) = 'seller'"),
+            pool.query("SELECT COUNT(*) FROM market WHERE status IN ('pending', 'reviewing')"),
+            pool.query('SELECT SUM(wallet_balance) FROM users'),
+            pool.query("SELECT COALESCE(SUM(commission), 0) AS sum FROM wallet_transfers WHERE status = 'accepted'"),
+            // Coin collect commissions come from ad_coin_collections — the authoritative source
+            pool.query("SELECT COALESCE(SUM(commission), 0) AS sum FROM ad_coin_collections"),
+            // Profile promote ad payments stored in wallet_transfers with type = 'profile_promote'
+            pool.query("SELECT COALESCE(SUM(commission), 0) AS sum FROM wallet_transfers WHERE status = 'accepted' AND type = 'profile_promote'"),
+            // Capital-to-Googer transfers (system_topup), stored in commission column
+            pool.query("SELECT COALESCE(SUM(commission), 0) AS sum FROM wallet_transfers WHERE type = 'system_topup' AND status = 'accepted'"),
+        ]);
+
+        const coinCollectBalance = parseFloat(coinCollect.rows[0].sum || 0);
+        const adPublishBalance = parseFloat(adPublish.rows[0].sum || 0);
+        const capitalTransferBalance = parseFloat(capital.rows[0].sum || 0);
 
         res.json({
             totalUsers: usersCount.rows[0].count,
             activeSellers: sellersCount.rows[0].count,
             pendingProducts: pendingProducts.rows[0].count,
             totalUsersBalance: totalBalance.rows[0].sum || 0,
-            googerBalance: commissions.rows[0].sum || 0
+            googerBalance: commissions.rows[0].sum || 0,
+            coinCollectBalance,
+            adPublishBalance,
+            capitalTransferBalance,
         });
     } catch (err) {
         console.error(err);
@@ -75,6 +94,295 @@ router.get('/recent-activity', async (req, res) => {
     }
 });
 
+
+// Coin collect detail — which ads generated Googer coin income
+router.get('/coin-collect-detail', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                acc.ad_id,
+                acc.ad_type,
+                acc.commission,
+                acc.reward_amount,
+                acc.advertiser_charge,
+                acc.created_at,
+                a.user_id    AS advertiser_id,
+                a.full_name  AS advertiser_name,
+                c.user_id    AS collector_user_id,
+                c.full_name  AS collector_name
+            FROM ad_coin_collections acc
+            LEFT JOIN ads ad ON acc.ad_id = ad.ad_id
+            LEFT JOIN users a ON ad.user_id = a.id
+            LEFT JOIN users c ON acc.user_id = c.id
+            ORDER BY acc.created_at DESC
+            LIMIT 100
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Profile promote ad payments detail
+router.get('/profile-promote-detail', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                wt.id,
+                wt.amount,
+                wt.commission,
+                wt.note,
+                wt.status,
+                wt.created_at,
+                a.ad_id,
+                COALESCE(owner.full_name, u.full_name) AS user_name,
+                COALESCE(owner.user_id, u.user_id) AS user_readable_id,
+                COALESCE(owner.username, u.username) AS username,
+                CASE
+                    WHEN wt.type = 'ad_refund' OR wt.note ILIKE 'Ad Refund - %' THEN 'refund'
+                    ELSE 'credit'
+                END AS event_type,
+                CASE
+                    WHEN wt.type = 'ad_refund' OR wt.note ILIKE 'Ad Refund - %'
+                        THEN -ABS(COALESCE(wt.amount, 0))
+                    ELSE ABS(COALESCE(NULLIF(wt.commission, 0), wt.amount, 0))
+                END AS signed_amount
+            FROM wallet_transfers wt
+            LEFT JOIN ads a ON wt.note ILIKE '%' || a.ad_id || '%'
+            LEFT JOIN users owner ON a.user_id = owner.id
+            LEFT JOIN users u ON wt.sender_id = u.id
+            WHERE (
+                wt.type = 'profile_promote'
+                OR (
+                    (wt.type = 'ad_refund' OR (wt.type = 'transfer' AND wt.note ILIKE 'Ad Refund - %'))
+                    AND a.campaign_type = 'Profile Promote'
+                )
+            )
+            ORDER BY wt.created_at DESC
+            LIMIT 100
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Photo / video + product promote ad collection history
+router.get('/ad-promote-collection-detail', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                wt.id,
+                wt.amount,
+                wt.commission,
+                wt.note,
+                wt.status,
+                wt.created_at,
+                a.ad_id,
+                COALESCE(owner.full_name, u.full_name) AS user_name,
+                COALESCE(owner.user_id, u.user_id) AS user_readable_id,
+                COALESCE(owner.username, u.username) AS username,
+                CASE
+                    WHEN COALESCE(a.campaign_type, '') IN ('Product Promote', 'Photo and Video') THEN a.campaign_type
+                    WHEN wt.note ILIKE '%Product Promote%' THEN 'Product Promote'
+                    WHEN wt.note ILIKE '%Photo Promote%' OR wt.note ILIKE '%Photo and Video%' THEN 'Photo and Video'
+                    ELSE 'Ad Promote'
+                END AS ad_category,
+                CASE
+                    WHEN wt.type = 'ad_refund' OR wt.note ILIKE 'Ad Refund - %' THEN 'refund'
+                    ELSE 'credit'
+                END AS event_type,
+                CASE
+                    WHEN wt.type = 'ad_refund' OR wt.note ILIKE 'Ad Refund - %'
+                        THEN -ABS(COALESCE(wt.amount, 0))
+                    ELSE ABS(COALESCE(NULLIF(wt.commission, 0), wt.amount, 0))
+                END AS signed_amount
+            FROM wallet_transfers wt
+            LEFT JOIN ads a ON wt.note ILIKE '%' || a.ad_id || '%'
+            LEFT JOIN users owner ON a.user_id = owner.id
+            LEFT JOIN users u ON wt.sender_id = u.id
+            WHERE (
+                (wt.type = 'transfer' AND wt.note ILIKE 'Ad Promote - %')
+                OR (
+                    (wt.type = 'ad_refund' OR (wt.type = 'transfer' AND wt.note ILIKE 'Ad Refund - %'))
+                    AND (
+                        a.campaign_type IN ('Photo and Video', 'Product Promote')
+                        OR wt.note ILIKE '%Product Promote%'
+                        OR wt.note ILIKE '%Photo and Video%'
+                    )
+                )
+            )
+            ORDER BY wt.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Product commission history routed to Googer via completed orders
+router.get('/product-commission-history', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                o.id AS order_id,
+                o.status AS order_status,
+                COALESCE(wt.amount, 0) AS commission_amount,
+                wt.status AS transfer_status,
+                wt.note,
+                COALESCE(wt.created_at, o.created_at) AS created_at,
+                seller.full_name AS seller_name,
+                seller.username AS seller_username,
+                seller.user_id AS seller_readable_id,
+                buyer.full_name AS buyer_name,
+                buyer.username AS buyer_username,
+                buyer.user_id AS buyer_readable_id
+            FROM orders o
+            LEFT JOIN wallet_transfers wt ON wt.id = o.seller_commission_transfer_id
+            LEFT JOIN users seller ON seller.id = o.seller_id
+            LEFT JOIN users buyer ON buyer.id = o.buyer_id
+            WHERE o.seller_commission_transfer_id IS NOT NULL
+            ORDER BY COALESCE(wt.created_at, o.created_at) DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// All registered users list for admin transfer
+router.get('/all-users-list', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT id, full_name, username, user_id, wallet_balance, user_type, profile_picture
+            FROM users
+            ORDER BY full_name ASC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Admin-to-user direct transfer history
+router.get('/user-transfer-history', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                wt.id, wt.amount, wt.note, wt.created_at,
+                s.full_name  AS sender_name,
+                s.username   AS sender_username,
+                s.user_type  AS sender_type,
+                r.full_name  AS receiver_name,
+                r.username   AS receiver_username,
+                r.user_id    AS receiver_readable_id,
+                r.user_type  AS receiver_type
+            FROM wallet_transfers wt
+            LEFT JOIN users s ON wt.sender_id  = s.id
+            LEFT JOIN users r ON wt.receiver_id = r.id
+            WHERE wt.type = 'transfer'
+              AND wt.status = 'accepted'
+              AND (LOWER(s.user_type) = 'admin' OR LOWER(s.user_type) = 'super_admin')
+            ORDER BY wt.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Capital fund addition history (capital_add records)
+router.get('/capital-add-history', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                wt.id, wt.amount, wt.note, wt.created_at,
+                u.full_name AS sender_name,
+                u.username,
+                u.user_id  AS user_readable_id
+            FROM wallet_transfers wt
+            LEFT JOIN users u ON wt.sender_id = u.id
+            WHERE wt.type = 'capital_add' AND wt.status = 'accepted'
+            ORDER BY wt.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Capital-to-Googer transfer history (system_topup records)
+router.get('/capital-transfer-history', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                wt.id, wt.commission AS transfer_amount, wt.note, wt.created_at,
+                u.full_name   AS sender_name,
+                u.username,
+                u.user_id     AS user_readable_id
+            FROM wallet_transfers wt
+            LEFT JOIN users u ON wt.sender_id = u.id
+            WHERE wt.type = 'system_topup' AND wt.status = 'accepted'
+            ORDER BY wt.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Add capital funds directly to an admin's wallet_balance
+router.post('/add-wallet-capital', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { amount } = req.body;
+        const adminId = req.user.id;
+        const addAmount = parseFloat(amount);
+
+        if (!addAmount || addAmount <= 0) {
+            return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+        }
+
+        await client.query('BEGIN');
+
+        const result = await client.query(
+            `UPDATE users
+             SET wallet_balance = wallet_balance + $1
+             WHERE id = $2
+               AND (LOWER(user_type) = 'admin' OR LOWER(user_type) = 'super_admin')
+             RETURNING id, wallet_balance`,
+            [addAmount, adminId]
+        );
+
+        if (result.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ success: false, message: 'Only admins can add capital funds' });
+        }
+
+        await client.query(
+            `INSERT INTO wallet_transfers (sender_id, receiver_id, amount, note, type, status, commission, commission_percentage)
+             VALUES ($1, $1, $2, 'Admin Capital Fund Addition', 'capital_add', 'accepted', 0, 0)`,
+            [adminId, addAmount]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, newBalance: parseFloat(result.rows[0].wallet_balance) });
+    } catch (err) {
+        try { await client.query('ROLLBACK'); } catch (_) {}
+        console.error(err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
 
 router.post('/transfer-googer-to-admin', async (req, res) => {
     const client = await pool.connect();

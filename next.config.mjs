@@ -1,20 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    allowedDevOrigins: ['*.trycloudflare.com', '*.ngrok-free.app'],
     images: {
         remotePatterns: [
             {
                 protocol: 'https',
-                hostname: 'ui-avatars.com',
-                pathname: '/api/**',
-            },
-            {
-                protocol: 'https',
-                hostname: 'picsum.photos',
-                pathname: '/**',
-            },
-            {
-                protocol: 'https',
-                hostname: 'fastly.picsum.photos',
+                hostname: '**',
                 pathname: '/**',
             },
             {

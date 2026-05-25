@@ -70,6 +70,7 @@ export default function ProfilePage() {
                     <div className="w-24 h-24 sm:w-32 sm:h-32 md:w-40 md:h-40 rounded-full p-[3px] bg-gradient-to-tr from-gray-700 to-gray-400">
                         <div className="w-full h-full rounded-full border-4 border-black overflow-hidden relative bg-black">
                             <Image
+                                unoptimized
                                 src={profileImage}
                                 alt={user.full_name || user.username}
                                 fill

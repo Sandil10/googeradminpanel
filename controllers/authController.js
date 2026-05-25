@@ -119,7 +119,7 @@ exports.register = async (req, res) => {
                 `INSERT INTO users (user_id, username, full_name, email, password, user_type, referral_code, wallet_balance)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                  RETURNING id, user_id, username, full_name, email, user_type, profile_picture, referral_code, wallet_balance, created_at`,
-                [userId, username, fullName, email, hashedPassword, userType, newReferralCode, 1000.00]
+                [userId, username, fullName, email, hashedPassword, userType, newReferralCode, 0.00]
             );
 
             const newUserId = newUser.rows[0].id;

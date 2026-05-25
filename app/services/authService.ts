@@ -21,15 +21,12 @@ const storage = {
 // Helper to safely parse JSON from a response
 const safeJson = async (response: Response) => {
     try {
-        if (!response || !response.headers) return null;
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-            return await response.json();
-        }
+        const text = await response.text();
+        if (!text) return null;
+        return JSON.parse(text);
     } catch (e) {
-        console.error("JSON parse error:", e);
+        return null;
     }
-    return null;
 };
 
 export const authService = {

@@ -589,12 +589,9 @@ export default function ProductStatusTable() {
 
     return (
         <div className="space-y-6">
-            <div className="no-scrollbar overflow-x-auto pb-2">
-            <div className="w-max min-w-[1240px] space-y-6 pr-2">
-            <div>
+                <div>
                 <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">Ads / Product Status</p>
                 <h1 className="mt-2 text-2xl font-black tracking-tight text-white">Published Orders</h1>
-            </div>
             </div>
 
             {error && !loading && (
@@ -693,7 +690,7 @@ export default function ProductStatusTable() {
                             const orderTotal = getOrderTotal(group.items);
 
                             return (
-                                <div key={item.id} className="w-[1220px] rounded-[2rem] border border-white/5 bg-[#221d19] px-4 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.2)]">
+                                <div key={item.id} className="w-full rounded-[2rem] border border-white/5 bg-[#221d19] px-4 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.2)]">
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex min-w-0 items-start gap-3">
                                             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[1.2rem] border border-white/5 bg-white/[0.03] text-white/30">
@@ -727,8 +724,8 @@ export default function ProductStatusTable() {
                                     </div>
 
                                     <div className="mt-4 rounded-[1.8rem] border border-white/5 bg-[#1c1c1c] px-4 py-3">
-                                        <div className="grid w-full grid-cols-[660px_320px_200px] items-start gap-4">
-                                            <div className="flex w-[660px] items-center gap-4">
+                                        <div className="grid w-full grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_300px_175px]">
+                                            <div className="flex w-full min-w-0 items-center gap-4">
                                                 <div className="h-20 w-20 shrink-0 overflow-hidden rounded-[1.2rem] bg-white/5">
                                                     {item.image_url ? (
                                                         <img src={item.image_url} alt={item.title || `Order ${item.id}`} className="h-full w-full object-cover" />
@@ -739,8 +736,8 @@ export default function ProductStatusTable() {
                                                     )}
                                                 </div>
 
-                                                <div className="min-w-0 flex-1">
-                                                    <h4 className="break-words text-white text-sm font-black uppercase tracking-tight">
+                                                <div className="min-w-0 flex-1 overflow-hidden">
+                                                    <h4 className="truncate text-white text-sm font-black uppercase tracking-tight">
                                                         {item.title || `Item #${item.item_id}`}
                                                     </h4>
                                                     <div className="flex flex-wrap items-center gap-3 mt-1.5 opacity-60">
@@ -792,7 +789,7 @@ export default function ProductStatusTable() {
 
                                             <button
                                                 type="button"
-                                                className="min-h-[92px] w-[320px] rounded-xl border border-blue-500/10 bg-blue-500/5 px-3 py-2 text-left shadow-inner transition-all hover:bg-blue-500/10 hover:border-blue-400/20 active:scale-[0.99]"
+                                                className="min-h-[80px] w-full rounded-xl border border-blue-500/10 bg-blue-500/5 px-3 py-2 text-left shadow-inner transition-all hover:bg-blue-500/10 hover:border-blue-400/20 active:scale-[0.99]"
                                             >
                                                 <div className="flex items-center gap-1.5 text-[7px] font-black text-blue-400/50 uppercase tracking-widest leading-none mb-1">
                                                     <IonIcon name="navigate-outline" className="text-[10px]" />
@@ -807,8 +804,8 @@ export default function ProductStatusTable() {
                                                 </div>
                                             </button>
 
-                                            <div className="flex w-[200px] flex-col items-end gap-2">
-                                                <div className="flex w-full items-center justify-end gap-3">
+                                            <div className="flex w-full flex-col items-start gap-2 xl:items-end">
+                                                <div className="flex w-full flex-wrap items-center gap-3 xl:justify-end">
                                                     <div className="flex items-center gap-2">
                                                         <div className="px-2 py-1 bg-white/5 rounded-lg border border-white/10">
                                                             <span className={`text-[7px] font-black uppercase tracking-widest leading-none ${
@@ -949,7 +946,6 @@ export default function ProductStatusTable() {
                     </button>
                 </div>
             )}
-            </div>
 
             {viewingOrderGroup && (
                 <div className="fixed inset-0 z-[190] flex items-center justify-center bg-black/90 p-2 backdrop-blur-xl sm:p-3" onClick={() => setViewingOrderGroup(null)}>

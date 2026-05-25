@@ -61,6 +61,7 @@ export default function Topbar() {
                         src="/assets/images/googer.png"
                         alt="Googer Logo"
                         fill
+                        sizes="32px"
                         className="object-contain"
                     />
                 </div>
@@ -201,6 +202,7 @@ export default function Topbar() {
                             className="relative block w-9 h-9 rounded-full overflow-hidden border-2 border-white/10 hover:border-white/50 transition-all active:scale-95 group"
                         >
                             <Image
+                                unoptimized
                                 src={profileImage}
                                 alt={user?.full_name || "User"}
                                 fill

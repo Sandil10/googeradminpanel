@@ -1,6 +1,66 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
+const authMiddleware = require('../middleware/auth');
+const adminOnly = require('../middleware/adminOnly');
+
+router.use(authMiddleware, adminOnly);
+
+// Create a new user (admin)
+router.post('/', async (req, res) => {
+  const { user_id, user_type, username, full_name, email, password, confirm_password } = req.body;
+
+  if (!user_id || !user_type || !username || !full_name || !email || !password || !confirm_password) {
+    return res.status(400).json({ message: 'All fields are required.' });
+  }
+  if (!/^\d{6}$/.test(user_id)) {
+    return res.status(400).json({ message: 'User ID must be exactly 6 digits.' });
+  }
+  if (password !== confirm_password) {
+    return res.status(400).json({ message: 'Passwords do not match.' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters.' });
+  }
+
+  try {
+    // Expand user_id column to accept 6+ digits if it was VARCHAR(4)
+    await pool.query(`ALTER TABLE users ALTER COLUMN user_id TYPE VARCHAR(20)`).catch(() => {});
+
+    // Check uniqueness
+    const exists = await pool.query(
+      'SELECT user_id, email, username FROM users WHERE user_id = $1 OR email = $2 OR username = $3',
+      [user_id, email, username]
+    );
+    if (exists.rows.length > 0) {
+      const dup = exists.rows[0];
+      if (dup.user_id === user_id)   return res.status(409).json({ message: 'User ID already in use.' });
+      if (dup.email === email)       return res.status(409).json({ message: 'Email already registered.' });
+      if (dup.username === username) return res.status(409).json({ message: 'Username already taken.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const cleanName = username.substring(0, 3).toUpperCase();
+    const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const referralCode = `REF-${cleanName}-${randomStr}`;
+
+    const normalizedType = user_type.toLowerCase();
+
+    const result = await pool.query(
+      `INSERT INTO users (user_id, username, full_name, email, password, user_type, referral_code, wallet_balance)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, user_id, username, full_name, email, user_type, profile_picture, referral_code, wallet_balance, created_at`,
+      [user_id, username, full_name, email, hashedPassword, normalizedType, referralCode, 0.00]
+    );
+
+    res.status(201).json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    console.error('Admin create user error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // Get all users
 router.get('/all', async (req, res) => {
@@ -166,4 +226,3 @@ router.post('/:id/restore', async (req, res) => {
 });
 
 module.exports = router;
-

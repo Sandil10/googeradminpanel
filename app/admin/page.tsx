@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import IonIcon from "../components/IonIcon";
 import { adminService } from "../services/adminService";
+import { authService } from "../services/authService";
 
 interface Stats {
     totalUsers: string;
@@ -47,27 +49,58 @@ function activityColor(status: string): string {
 }
 
 export default function AdminDashboard() {
+    const router = useRouter();
     const [stats, setStats] = useState<Stats | null>(null);
     const [activity, setActivity] = useState<Activity[]>([]);
+    const [mainWalletBalance, setMainWalletBalance] = useState(0);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+    const redirectToLogin = useCallback(() => {
+        try { localStorage.removeItem('token'); localStorage.removeItem('user'); } catch (_) {}
+        router.replace('/');
+    }, [router]);
+
+    useEffect(() => {
+        if (!authService.isAuthenticated()) {
+            redirectToLogin();
+        }
+    }, [redirectToLogin]);
+
     const loadData = useCallback(async (isPolling = false) => {
+        if (!authService.isAuthenticated()) {
+            redirectToLogin();
+            return;
+        }
         try {
             if (!isPolling) setLoading(true);
-            const [statsData, activityData] = await Promise.all([
+            const [statsData, activityData, profile] = await Promise.all([
                 adminService.fetchStats(),
                 adminService.fetchRecentActivity().catch(() => []),
+                authService.getProfile(),
             ]);
             setStats(statsData);
             setActivity(activityData || []);
+            setMainWalletBalance(parseFloat(String(profile?.wallet_balance || 0)) || 0);
             setLastUpdated(new Date());
-        } catch (err) {
+        } catch (err: any) {
+            const msg = (err?.message || '').toLowerCase();
+            if (
+                msg.includes('authentication') ||
+                msg.includes('no token') ||
+                msg.includes('admin access') ||
+                msg.includes('unauthorized') ||
+                msg.includes('forbidden') ||
+                msg.includes('session expired')
+            ) {
+                redirectToLogin();
+                return;
+            }
             console.error("Dashboard load error:", err);
         } finally {
             if (!isPolling) setLoading(false);
         }
-    }, []);
+    }, [redirectToLogin]);
 
     useEffect(() => {
         loadData(false);
@@ -95,13 +128,31 @@ export default function AdminDashboard() {
             href: "/admin/users/sellers",
         },
         {
-            name: "Total Balance",
-            value: stats ? `R ${parseFloat(String(stats.totalUsersBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—",
+            name: "Googer Total Balance",
+            value: stats ? `R ${parseFloat(String(stats.googerBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—",
             icon: "cash",
             color: "text-emerald-400",
             bg: "bg-emerald-500/10",
             border: "border-emerald-500/20",
             href: "/admin/wallet/main",
+        },
+        {
+            name: "Main Wallet Balance",
+            value: `R ${mainWalletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            icon: "wallet",
+            color: "text-cyan-400",
+            bg: "bg-cyan-500/10",
+            border: "border-cyan-500/20",
+            href: "/admin/wallet/main",
+        },
+        {
+            name: "Total Users Balance",
+            value: stats ? `R ${parseFloat(String(stats.totalUsersBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—",
+            icon: "people",
+            color: "text-fuchsia-400",
+            bg: "bg-fuchsia-500/10",
+            border: "border-fuchsia-500/20",
+            href: "/admin/users/all",
         },
         {
             name: "Pending Reviews",
@@ -151,18 +202,18 @@ export default function AdminDashboard() {
             </div>
 
             {/* Stat Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 {statCards.map((stat) => (
                     <Link
                         key={stat.name}
                         href={stat.href}
-                        className={`bg-[#09090b] border border-[#1a1a1a] rounded-2xl p-6 hover:border-white/20 transition-all group hover:scale-[1.02] active:scale-[0.98] block ${loading ? "animate-pulse" : ""}`}
+                        className={`bg-[#09090b] border border-[#1a1a1a] rounded-2xl p-4 sm:p-6 hover:border-white/20 transition-all group hover:scale-[1.02] active:scale-[0.98] block ${loading ? "animate-pulse" : ""}`}
                     >
-                        <div className={`w-12 h-12 rounded-xl ${stat.bg} border ${stat.border} ${stat.color} flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform`}>
+                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl ${stat.bg} border ${stat.border} ${stat.color} flex items-center justify-center text-xl sm:text-2xl mb-3 sm:mb-4 group-hover:scale-110 transition-transform`}>
                             <IonIcon name={stat.icon + "-outline"} />
                         </div>
-                        <p className="text-slate-400 text-sm font-medium">{stat.name}</p>
-                        <h3 className={`text-2xl font-bold text-white mt-1 ${loading && !stats ? "opacity-30" : ""}`}>
+                        <p className="text-slate-400 text-xs sm:text-sm font-medium leading-tight">{stat.name}</p>
+                        <h3 className={`text-lg sm:text-2xl font-bold text-white mt-1 ${loading && !stats ? "opacity-30" : ""}`}>
                             {stat.value}
                         </h3>
                         <div className={`flex items-center gap-1 mt-2 text-xs ${stat.color} opacity-60`}>
@@ -187,26 +238,35 @@ export default function AdminDashboard() {
                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live</span>
                         </div>
                     </div>
-                    <div className="h-48 flex items-end gap-1.5">
-                        {chartBars.map((bar, i) => {
-                            const height = maxBar > 0 ? Math.max((bar.count / maxBar) * 100, bar.count > 0 ? 8 : 2) : 2;
-                            return (
-                                <div key={i} className="flex-1 flex flex-col items-center gap-1 group/bar">
-                                    <div className="w-full relative flex flex-col justify-end" style={{ height: "100%" }}>
-                                        {bar.count > 0 && (
-                                            <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover/bar:opacity-100 transition-opacity bg-black border border-white/10 rounded-md px-2 py-0.5 text-[9px] text-white font-black whitespace-nowrap z-10">
-                                                {bar.count} events
+                    <div className="relative">
+                        {/* Horizontal grid lines */}
+                        <div className="absolute inset-x-0 top-0 bottom-6 flex flex-col justify-between pointer-events-none">
+                            {[...Array(5)].map((_, i) => (
+                                <div key={i} className="w-full border-t border-white/[0.04]" />
+                            ))}
+                        </div>
+                        <div className="h-48 flex items-end gap-1.5 relative">
+                            {chartBars.map((bar, i) => {
+                                const height = maxBar > 0 ? Math.max((bar.count / maxBar) * 100, bar.count > 0 ? 8 : 2) : 2;
+                                return (
+                                    <div key={i} className="flex-1 flex flex-col items-center gap-1 group/bar">
+                                        <div className="w-full relative flex flex-col justify-end" style={{ height: "100%" }}>
+                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover/bar:opacity-100 transition-all duration-150 bg-[#09090b] border border-white/15 rounded-lg px-2 py-1 text-[9px] text-white font-black whitespace-nowrap z-10 shadow-xl">
+                                                {bar.count > 0 ? `${bar.count} event${bar.count !== 1 ? "s" : ""}` : "0 events"}
+                                                <span className="block text-slate-500 font-medium text-[8px]">{bar.label}</span>
                                             </div>
-                                        )}
-                                        <div
-                                            className={`w-full rounded-t-sm transition-all duration-500 ${bar.count > 0 ? "bg-blue-600 group-hover/bar:bg-blue-400" : "bg-white/5"}`}
-                                            style={{ height: `${height}%` }}
-                                        />
+                                            <div
+                                                className={`w-full rounded-t-lg transition-all duration-700 ease-out ${bar.count > 0
+                                                    ? "bg-gradient-to-t from-blue-700 via-blue-500 to-blue-400 group-hover/bar:from-blue-600 group-hover/bar:via-blue-400 group-hover/bar:to-cyan-300 shadow-[0_-2px_12px_rgba(59,130,246,0.3)] group-hover/bar:shadow-[0_-2px_16px_rgba(59,130,246,0.5)]"
+                                                    : "bg-white/[0.04] group-hover/bar:bg-white/10"}`}
+                                                style={{ height: `${height}%` }}
+                                            />
+                                        </div>
+                                        <span className="text-[8px] text-slate-600 tabular-nums">{bar.label}</span>
                                     </div>
-                                    <span className="text-[8px] text-slate-600 uppercase tabular-nums">{bar.label}</span>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
                     </div>
                     {activity.length === 0 && !loading && (
                         <p className="text-center text-slate-600 text-xs mt-4 italic">No recent activity to display</p>
@@ -255,15 +315,6 @@ export default function AdminDashboard() {
                         )}
                     </div>
 
-                    <div className="pt-4 mt-4 border-t border-white/5">
-                        <Link
-                            href="/admin/wallet/topup"
-                            className="w-full py-3 rounded-xl bg-white hover:bg-gray-200 text-black text-xs font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
-                        >
-                            <IonIcon name="list-outline" />
-                            View All Requests
-                        </Link>
-                    </div>
                 </div>
             </div>
 

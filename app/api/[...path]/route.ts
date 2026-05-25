@@ -7,53 +7,60 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
 
+// Headers that must not be forwarded (hop-by-hop + encoding that fetch auto-handles)
+// Drop 'origin' and 'referer' so Express CORS never sees the browser's ngrok/external origin.
+// All requests through this proxy are server-to-server; the browser's origin is irrelevant.
+const DROP_REQUEST_HEADERS = new Set([
+    'host', 'connection', 'transfer-encoding', 'keep-alive',
+    'upgrade', 'proxy-authorization', 'content-encoding',
+    'origin', 'referer',
+]);
+
+// fetch() auto-decodes content-encoding (gzip/br), so forwarding it would
+// make the browser try to decode already-decoded bytes → garbled JSON.
+const DROP_RESPONSE_HEADERS = new Set([
+    'transfer-encoding', 'connection', 'keep-alive', 'content-encoding', 'content-length',
+]);
+
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
     const { path } = await context.params;
     const pathStr = Array.isArray(path) ? path.join('/') : path;
     const search = request.nextUrl.search || '';
     const targetUrl = `${BACKEND}/api/${pathStr}${search}`;
 
-    // Build forwarded headers — drop hop-by-hop headers
     const forwardHeaders: Record<string, string> = {};
     request.headers.forEach((value, key) => {
-        const lower = key.toLowerCase();
-        if (!['host', 'connection', 'transfer-encoding', 'keep-alive', 'upgrade', 'proxy-authorization'].includes(lower)) {
+        if (!DROP_REQUEST_HEADERS.has(key.toLowerCase())) {
             forwardHeaders[key] = value;
         }
     });
 
     const method = request.method.toUpperCase();
-    const hasBody = !['GET', 'HEAD', 'DELETE', 'OPTIONS'].includes(method);
+    const hasBody = !['GET', 'HEAD', 'OPTIONS'].includes(method);
 
-    let bodyInit: BodyInit | undefined;
+    let body: string | undefined;
     if (hasBody) {
-        // Read body as ArrayBuffer to avoid streaming issues
-        try {
-            bodyInit = await request.arrayBuffer();
-        } catch {
-            bodyInit = undefined;
-        }
+        try { body = await request.text(); } catch { body = undefined; }
     }
 
     try {
         const upstream = await fetch(targetUrl, {
             method,
             headers: forwardHeaders,
-            body: hasBody && bodyInit ? bodyInit : undefined,
+            body: hasBody && body ? body : undefined,
         });
 
-        // Read response as buffer
-        const responseBody = await upstream.arrayBuffer();
+        // fetch() has already decoded the body; read as text to get the real bytes
+        const responseText = await upstream.text();
 
         const responseHeaders: Record<string, string> = {};
         upstream.headers.forEach((value, key) => {
-            const lower = key.toLowerCase();
-            if (!['transfer-encoding', 'connection', 'keep-alive'].includes(lower)) {
+            if (!DROP_RESPONSE_HEADERS.has(key.toLowerCase())) {
                 responseHeaders[key] = value;
             }
         });
 
-        return new NextResponse(responseBody, {
+        return new NextResponse(responseText, {
             status: upstream.status,
             statusText: upstream.statusText,
             headers: responseHeaders,
@@ -61,7 +68,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     } catch (err: any) {
         console.error(`[API Proxy] Failed to reach ${targetUrl}:`, err.message);
         return NextResponse.json(
-            { message: 'Backend unreachable. Make sure the Express server is running on port 5000.' },
+            { message: 'Backend unreachable. Is the Express server running on port 5000?' },
             { status: 503 }
         );
     }

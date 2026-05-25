@@ -18,30 +18,32 @@ interface User {
   created_at: string;
 }
 
-interface UsersTableProps {
-  userTypeFilter?: 'User' | 'Seller' | 'Employee';
-}
-
-export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
+export default function AllUsersPage() {
   const router = useRouter();
   const pathname = usePathname();
+  const userTypeFilter = pathname.includes('/sellers')
+    ? 'Seller'
+    : pathname.includes('/employees')
+      ? 'Employee'
+      : undefined;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [stats, setStats] = useState<any>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newUserData, setNewUserData] = useState({ username: '', full_name: '', email: '', user_type: 'User' });
+  const [newUserData, setNewUserData] = useState({ user_id: '', user_type: 'seller', username: '', full_name: '', email: '', password: '', confirm_password: '' });
+  const [addUserLoading, setAddUserLoading] = useState(false);
+  const [addUserError, setAddUserError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "highest" | "lowest">("highest");
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
   const [restoreConfirmUser, setRestoreConfirmUser] = useState<User | null>(null);
-  
   const [showGoogerTransferModal, setShowGoogerTransferModal] = useState(false);
   const [transferTargetAdmin, setTransferTargetAdmin] = useState<number | null>(null);
   const [googerTransferAmount, setGoogerTransferAmount] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
-
+  
   useEffect(() => {
     const loadInitialData = async (isPolling = false) => {
       try {
@@ -66,14 +68,17 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
     return () => clearInterval(interval);
   }, [userTypeFilter]);
 
-  const typeFilteredUsers = userTypeFilter 
-    ? users.filter(user => user.user_type && user.user_type.toLowerCase() === userTypeFilter.toLowerCase())
-    : users;
+  const isSystemAdmin = (u: User) => u.username?.toLowerCase() === 'admin';
+
+  const typeFilteredUsers = userTypeFilter
+    ? users.filter(user => !isSystemAdmin(user) && user.user_type && user.user_type.toLowerCase() === userTypeFilter.toLowerCase())
+    : users.filter(user => !isSystemAdmin(user));
 
   const totalUserBalance = typeFilteredUsers.reduce((sum, user) => sum + parseFloat(user.wallet_balance || '0'), 0);
-  
+
   const displayBalance = stats?.googerBalance || "0.00";
   const adminUsers = users.filter(u => u.user_type?.toLowerCase() === 'admin' || u.user_type?.toLowerCase() === 'super_admin');
+  const transferableUsers = users.filter(u => !isSystemAdmin(u) && ['admin', 'super_admin'].includes(u.user_type?.toLowerCase() ?? ''));
 
   const filteredUsers = typeFilteredUsers.filter(user => {
     if (!searchTerm) return true;
@@ -108,12 +113,16 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
     }
   };
 
+  const handleSelectAdmin = (admin: User) => {
+    setTransferTargetAdmin(admin.id);
+  };
+
   const handleGoogerTransfer = async () => {
     if (!transferTargetAdmin || !googerTransferAmount || isNaN(Number(googerTransferAmount)) || Number(googerTransferAmount) <= 0) {
       alert("Please select an admin and enter a valid amount.");
       return;
     }
-    
+
     try {
       setTransferLoading(true);
       await adminService.transferGoogerToAdmin(transferTargetAdmin, Number(googerTransferAmount));
@@ -121,15 +130,12 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
       setShowGoogerTransferModal(false);
       setTransferTargetAdmin(null);
       setGoogerTransferAmount('');
-      
-      // Refresh strictly the users and stats context
       const [usersData, statsData] = await Promise.all([
         adminService.fetchAllUsers(),
         adminService.fetchStats().catch(() => null)
       ]);
       setUsers(usersData || []);
       setStats(statsData);
-      
     } catch (err: any) {
       alert("Transfer failed: " + err.message);
     } finally {
@@ -137,9 +143,38 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
     }
   };
 
+  const handleAddUser = async () => {
+    setAddUserError(null);
+    const { user_id, user_type, username, full_name, email, password, confirm_password } = newUserData;
+    if (!user_id || !user_type || !username || !full_name || !email || !password || !confirm_password) {
+      setAddUserError('Please fill in all fields.');
+      return;
+    }
+    if (!/^\d{6}$/.test(user_id)) {
+      setAddUserError('User ID must be exactly 6 digits.');
+      return;
+    }
+    if (password !== confirm_password) {
+      setAddUserError('Passwords do not match.');
+      return;
+    }
+    try {
+      setAddUserLoading(true);
+      await adminService.createUser({ user_id, user_type, username, full_name, email, password, confirm_password });
+      setShowAddModal(false);
+      setNewUserData({ user_id: '', user_type: 'seller', username: '', full_name: '', email: '', password: '', confirm_password: '' });
+      const usersData = await adminService.fetchAllUsers();
+      setUsers(usersData || []);
+    } catch (err: any) {
+      setAddUserError(err.message);
+    } finally {
+      setAddUserLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
           <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">
             {userTypeFilter ? `${userTypeFilter}s Management` : "All Users Management"}
@@ -161,8 +196,8 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-blue-600/10 border border-blue-500/20 rounded-[2rem] p-6 flex items-center justify-between">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-blue-600/10 border border-blue-500/20 rounded-[2rem] p-5 sm:p-6 flex items-center justify-between">
           <div>
             <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">
               Total {userTypeFilter ? `${userTypeFilter}s` : "Users"} Balance
@@ -173,7 +208,7 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
             <IonIcon name="wallet-outline" className="text-2xl text-blue-400" />
           </div>
         </div>
-        <div 
+        <div
           onClick={() => setShowGoogerTransferModal(true)}
           className="bg-emerald-600/10 border border-emerald-500/20 rounded-[2rem] p-6 flex flex-1 items-center justify-between cursor-pointer hover:bg-emerald-600/20 hover:border-emerald-500/40 transition-all active:scale-[0.98] group relative overflow-hidden"
         >
@@ -199,7 +234,7 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
           </div>
         )}
 
-        <div className="p-6 border-b border-[#1a1a1a] flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-4 sm:p-6 border-b border-[#1a1a1a] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="relative flex-1 max-w-md group">
             <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
               <IonIcon name="search-outline" className="text-lg" />
@@ -212,7 +247,7 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
               className="w-full bg-[#0c0c0e] border border-white/5 rounded-2xl py-3.5 pl-12 pr-4 text-xs font-medium text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/30 focus:ring-4 focus:ring-blue-500/5 transition-all"
             />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
              <div className="relative">
                 <button 
                     onClick={() => setIsSortOpen(!isSortOpen)}
@@ -280,7 +315,7 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
               <tr className="bg-[#1a1a1a]/50 text-slate-300 text-[9px] font-black uppercase tracking-[0.2em]">
                 <th className="px-6 py-5">User Information</th>
                 <th className="px-6 py-5 text-center">Wallet Balance</th>
-                <th className="px-6 py-5 text-right w-[400px]">Actions</th>
+                <th className="px-6 py-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1a1a1a]">
@@ -313,14 +348,16 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
                             <span className="text-[11px] text-slate-500 italic mt-0.5">{user.email}</span>
                             <div className="flex items-center gap-2 mt-2">
                               <span className={`px-3 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
-                                user.user_type?.toLowerCase() === 'admin' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' : 
-                                user.user_type?.toLowerCase() === 'seller' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 
+                                user.user_type?.toLowerCase() === 'admin' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                                user.user_type?.toLowerCase() === 'seller' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
                                 user.user_type?.toLowerCase() === 'employee' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                user.user_type?.toLowerCase() === 'buyer' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                                 'bg-white/5 text-slate-400 border-white/5'
                               }`}>
-                                {user.user_type?.toLowerCase() === 'admin' ? 'Admin' : 
+                                {user.user_type?.toLowerCase() === 'admin' ? 'Admin' :
                                  user.user_type?.toLowerCase() === 'seller' ? 'Seller' :
-                                 user.user_type?.toLowerCase() === 'employee' ? 'Employee' : 'User'}
+                                 user.user_type?.toLowerCase() === 'employee' ? 'Employee' :
+                                 user.user_type?.toLowerCase() === 'buyer' ? 'Buyer' : 'User'}
                               </span>
                               <span className={`w-1.5 h-1.5 rounded-full ${user.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
                               <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{user.status}</span>
@@ -333,28 +370,32 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
                       <span className="text-lg font-black text-white">R {parseFloat(user.wallet_balance || '0').toLocaleString()}</span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <Link 
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
+                        <Link
                           href={`/admin/users/${user.id}`}
-                          className="h-10 px-4 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[8px] font-black uppercase tracking-widest hover:border-blue-500/30 hover:text-blue-400 transition-all flex items-center gap-2"
+                          className="h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[8px] font-black uppercase tracking-widest hover:border-blue-500/30 hover:text-blue-400 transition-all flex items-center gap-2 shrink-0"
                         >
                           <IonIcon name="person-outline" className="text-sm" />
-                          View Full Profile
+                          <span className="hidden lg:inline">View Full Profile</span>
+                          <span className="lg:hidden">View</span>
                         </Link>
-                        <button
-                          onClick={() => user.status === 'Active' 
-                            ? setDeleteConfirmUser(user) 
-                            : setRestoreConfirmUser(user)
-                          }
-                          className={`h-10 px-4 rounded-xl border text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${
-                            user.status === 'Active' 
-                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20' 
-                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                          }`}
-                        >
-                          <IonIcon name={user.status === 'Active' ? "close-circle-outline" : "checkmark-circle-outline"} className="text-sm" />
-                          {user.status === 'Active' ? 'Deactivate Account' : 'Activate Account'}
-                        </button>
+                        {user.user_type?.toLowerCase() !== 'admin' && (
+                          <button
+                            onClick={() => user.status === 'Active'
+                              ? setDeleteConfirmUser(user)
+                              : setRestoreConfirmUser(user)
+                            }
+                            className={`h-10 px-3 rounded-xl border text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shrink-0 ${
+                              user.status === 'Active'
+                              ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                            }`}
+                          >
+                            <IonIcon name={user.status === 'Active' ? "close-circle-outline" : "checkmark-circle-outline"} className="text-sm" />
+                            <span className="hidden lg:inline">{user.status === 'Active' ? 'Deactivate Account' : 'Activate Account'}</span>
+                            <span className="lg:hidden">{user.status === 'Active' ? 'Deactivate' : 'Activate'}</span>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -368,65 +409,276 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
       {/* Add User Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAddModal(false)}></div>
-          <div className="bg-[#09090b] border border-[#1a1a1a] rounded-[2rem] w-full max-w-md p-8 relative z-[110] shadow-2xl animate-in fade-in zoom-in-95 duration-300">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-black text-white uppercase tracking-wider">Add New User</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-500 hover:text-white transition-colors">
-                <IonIcon name="close" size="large" />
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" onClick={() => { if (!addUserLoading) { setShowAddModal(false); setAddUserError(null); } }}></div>
+          <div className="bg-[#09090b] border border-[#1a1a1a] rounded-[2rem] w-full max-w-sm p-6 relative z-[110] shadow-2xl animate-in fade-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-xs font-black text-white uppercase tracking-widest">Add New User</h3>
+              <button onClick={() => { if (!addUserLoading) { setShowAddModal(false); setAddUserError(null); } }} className="text-slate-500 hover:text-white transition-colors">
+                <IonIcon name="close" />
               </button>
             </div>
-            
-            <div className="space-y-4">
+
+            <div className="space-y-3">
+              {/* User ID */}
               <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Full Name</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-black border border-[#1a1a1a] rounded-xl px-4 py-3 text-white focus:border-white/50 outline-none transition-all"
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">User ID <span className="text-slate-600 normal-case">(6 digits)</span></label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  inputMode="numeric"
+                  className="w-full bg-black border border-[#1a1a1a] rounded-lg px-3 py-2 text-xs text-white focus:border-white/50 outline-none transition-all font-mono tracking-widest"
+                  placeholder="e.g. 123456"
+                  value={newUserData.user_id}
+                  onChange={e => setNewUserData({...newUserData, user_id: e.target.value.replace(/\D/g, '')})}
+                />
+              </div>
+
+              {/* Role */}
+              <div>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Role</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {['seller', 'buyer', 'employee', 'admin'].map(role => (
+                    <button
+                      key={role}
+                      onClick={() => setNewUserData({...newUserData, user_type: role})}
+                      className={`py-2 rounded-lg border text-[8px] font-black uppercase tracking-wider transition-all ${
+                        newUserData.user_type === role
+                          ? role === 'admin'    ? 'bg-orange-500/20 border-orange-500/50 text-orange-400'
+                          : role === 'seller'   ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
+                          : role === 'employee' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                          :                      'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                          : 'bg-black border-[#1a1a1a] text-slate-600 hover:border-white/20 hover:text-slate-400'
+                      }`}
+                    >
+                      {role === 'employee' ? 'Emp.' : role.charAt(0).toUpperCase() + role.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Full Name */}
+              <div>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Full Name</label>
+                <input
+                  type="text"
+                  className="w-full bg-black border border-[#1a1a1a] rounded-lg px-3 py-2 text-xs text-white focus:border-white/50 outline-none transition-all"
                   placeholder="Enter full name"
                   value={newUserData.full_name}
                   onChange={e => setNewUserData({...newUserData, full_name: e.target.value})}
                 />
               </div>
+
+              {/* Username */}
               <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Username</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-black border border-[#1a1a1a] rounded-xl px-4 py-3 text-white focus:border-white/50 outline-none transition-all"
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Username</label>
+                <input
+                  type="text"
+                  className="w-full bg-black border border-[#1a1a1a] rounded-lg px-3 py-2 text-xs text-white focus:border-white/50 outline-none transition-all"
                   placeholder="Enter username"
                   value={newUserData.username}
                   onChange={e => setNewUserData({...newUserData, username: e.target.value})}
                 />
               </div>
+
+              {/* Email */}
               <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Email Address</label>
-                <input 
-                  type="email" 
-                  className="w-full bg-black border border-[#1a1a1a] rounded-xl px-4 py-3 text-white focus:border-white/50 outline-none transition-all"
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Email Address</label>
+                <input
+                  type="email"
+                  className="w-full bg-black border border-[#1a1a1a] rounded-lg px-3 py-2 text-xs text-white focus:border-white/50 outline-none transition-all"
                   placeholder="name@example.com"
                   value={newUserData.email}
                   onChange={e => setNewUserData({...newUserData, email: e.target.value})}
                 />
               </div>
+
+              {/* Password */}
               <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">User Type</label>
-                <select 
-                  className="w-full bg-black border border-[#1a1a1a] rounded-xl px-4 py-3 text-white focus:border-white/50 outline-none transition-all appearance-none"
-                  value={newUserData.user_type}
-                  onChange={e => setNewUserData({...newUserData, user_type: e.target.value})}
-                >
-                  <option value="User">Standard User</option>
-                  <option value="Seller">Seller / Merchant</option>
-                  <option value="Employee">Employee</option>
-                  <option value="Admin">Admin</option>
-                </select>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Password</label>
+                <input
+                  type="password"
+                  className="w-full bg-black border border-[#1a1a1a] rounded-lg px-3 py-2 text-xs text-white focus:border-white/50 outline-none transition-all"
+                  placeholder="Min. 8 characters"
+                  value={newUserData.password}
+                  onChange={e => setNewUserData({...newUserData, password: e.target.value})}
+                />
               </div>
-              
-              <button 
-                onClick={() => { alert("User added (Demo)"); setShowAddModal(false); }}
-                className="w-full bg-white text-black font-black uppercase tracking-widest py-4 rounded-xl mt-4 hover:bg-gray-200 transition-all active:scale-95"
+
+              {/* Confirm Password */}
+              <div>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Confirm Password</label>
+                <input
+                  type="password"
+                  className={`w-full bg-black border rounded-lg px-3 py-2 text-xs text-white focus:border-white/50 outline-none transition-all ${
+                    newUserData.confirm_password && newUserData.password !== newUserData.confirm_password
+                      ? 'border-rose-500/50'
+                      : 'border-[#1a1a1a]'
+                  }`}
+                  placeholder="Re-enter password"
+                  value={newUserData.confirm_password}
+                  onChange={e => setNewUserData({...newUserData, confirm_password: e.target.value})}
+                />
+                {newUserData.confirm_password && newUserData.password !== newUserData.confirm_password && (
+                  <p className="text-[9px] text-rose-400 font-black mt-1 uppercase tracking-widest">Passwords do not match</p>
+                )}
+              </div>
+
+              {addUserError && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                  <p className="text-[10px] text-rose-400 font-bold">{addUserError}</p>
+                </div>
+              )}
+
+              <button
+                onClick={handleAddUser}
+                disabled={addUserLoading}
+                className="w-full bg-white disabled:bg-white/30 disabled:text-black/40 text-black font-black text-[9px] uppercase tracking-widest py-3 rounded-lg mt-1 hover:bg-gray-200 transition-all active:scale-95 flex items-center justify-center gap-2"
               >
-                Create User
+                {addUserLoading ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
+                    Creating...
+                  </>
+                ) : 'Add User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGoogerTransferModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-md animate-in fade-in duration-300"
+            onClick={() => setShowGoogerTransferModal(false)}
+          />
+          <div className="bg-[#09090b] border border-emerald-500/20 rounded-[2rem] w-full max-w-sm p-5 relative z-[310] shadow-2xl shadow-emerald-900/20 animate-in fade-in zoom-in-95 duration-300 max-h-[82vh] overflow-y-auto custom-scrollbar">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                  <IonIcon name="business-outline" className="text-base" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider leading-tight">Googer Transfer</h3>
+                  <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Balance Breakdown</p>
+                </div>
+              </div>
+              <button onClick={() => setShowGoogerTransferModal(false)} className="text-slate-500 hover:text-white transition-colors">
+                <IonIcon name="close" />
+              </button>
+            </div>
+
+            {(() => {
+              const coin = parseFloat(String(stats?.coinCollectBalance || 0));
+              const promote = parseFloat(String(stats?.adPublishBalance || 0));
+              const capital = parseFloat(String(stats?.capitalTransferBalance || 0));
+
+              const BreakdownRow = ({ href, icon, label, amount, color, hoverColor, borderColor }: { href: string; icon: string; label: string; amount: number; color: string; hoverColor: string; borderColor: string }) => (
+                <Link
+                  href={href}
+                  onClick={() => setShowGoogerTransferModal(false)}
+                  className={`w-full flex items-center justify-between text-[10px] group py-1.5 px-2 rounded-lg border border-transparent hover:${borderColor} hover:bg-white/[0.03] transition-all`}
+                >
+                  <span className={`font-black uppercase tracking-widest flex items-center gap-1.5 text-white/40 group-hover:${hoverColor} transition-colors`}>
+                    <IonIcon name={icon} className="text-[9px]" />
+                    {label}
+                    <IonIcon name="arrow-forward-outline" className="text-[8px] opacity-0 group-hover:opacity-70 transition-opacity" />
+                  </span>
+                  <span className={`font-black font-mono text-white/70 group-hover:${color} transition-colors`}>
+                    R {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </Link>
+              );
+
+              return (
+                <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/[0.05] px-2 py-2 mb-4 space-y-0.5">
+                  <BreakdownRow href="/admin/wallet/capital-transfer" icon="arrow-up-circle-outline" label="Capital Transfer" amount={capital} color="text-yellow-300" hoverColor="text-yellow-400" borderColor="border-yellow-500/20" />
+                  <BreakdownRow href="/admin/wallet/coin-collections" icon="logo-bitcoin" label="Ad Coin Collecting" amount={coin} color="text-emerald-300" hoverColor="text-emerald-400" borderColor="border-emerald-500/20" />
+                  <BreakdownRow href="/admin/wallet/profile-promote" icon="person-circle-outline" label="Profile Promote Ads" amount={promote} color="text-violet-300" hoverColor="text-violet-400" borderColor="border-violet-500/20" />
+                </div>
+              );
+            })()}
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Select Transfer Target</label>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                  {transferableUsers.length === 0 ? (
+                    <div className="p-3 border border-dashed border-white/10 rounded-xl text-center">
+                      <p className="text-[10px] text-slate-500 italic">No users available.</p>
+                    </div>
+                  ) : (
+                    transferableUsers.map(u => (
+                      <div
+                        key={u.id}
+                        onClick={() => handleSelectAdmin(u)}
+                        className={`px-3 py-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
+                          transferTargetAdmin === u.id
+                            ? 'bg-emerald-500/10 border-emerald-500/40'
+                            : 'bg-[#0c0c0e] border-[#1a1a1a] hover:border-white/10 hover:bg-white/[0.03]'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className={`text-xs font-bold truncate ${transferTargetAdmin === u.id ? 'text-white' : 'text-slate-300'}`}>{u.full_name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[8px] font-black uppercase tracking-widest ${transferTargetAdmin === u.id ? 'text-emerald-400' : 'text-slate-600'}`}>{u.user_type}</span>
+                            <span className={`text-[8px] font-mono ${transferTargetAdmin === u.id ? 'text-emerald-400/50' : 'text-slate-700'}`}>#{u.user_id}</span>
+                          </div>
+                        </div>
+                        {transferTargetAdmin === u.id && (
+                          <div className="w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shrink-0">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Transfer Amount</label>
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">R</div>
+                  <input
+                    type="number"
+                    className="w-full bg-[#0c0c0e] border border-[#1a1a1a] rounded-xl pl-8 pr-14 py-3 text-white font-bold text-sm focus:border-emerald-500/50 outline-none transition-all font-mono placeholder:text-slate-700"
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    value={googerTransferAmount}
+                    onChange={e => setGoogerTransferAmount(e.target.value)}
+                  />
+                  <button
+                    onClick={() => {
+                      const coin = parseFloat(String(stats?.coinCollectBalance || 0));
+                      const promote = parseFloat(String(stats?.adPublishBalance || 0));
+                      const capital = parseFloat(String(stats?.capitalTransferBalance || 0));
+                      setGoogerTransferAmount(String((coin + promote + capital).toFixed(2)));
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black uppercase tracking-widest text-emerald-400 hover:text-white hover:bg-emerald-500/20 bg-emerald-500/10 px-2 py-1 rounded-lg transition-colors"
+                  >
+                    Max
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={handleGoogerTransfer}
+                disabled={transferLoading || !transferTargetAdmin || !googerTransferAmount || Number(googerTransferAmount) <= 0}
+                className="w-full h-10 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/30 disabled:text-emerald-400/50 text-white font-black text-[9px] uppercase tracking-widest rounded-xl transition-all active:scale-95 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              >
+                {transferLoading ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <IonIcon name="send-outline" className="text-sm" />
+                    Complete Transfer
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -519,108 +771,6 @@ export default function AllUsersPage({ userTypeFilter }: UsersTableProps) {
         </div>
       )}
 
-      {/* Googer Balance Transfer Modal */}
-      {showGoogerTransferModal && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setShowGoogerTransferModal(false)}></div>
-          <div className="bg-[#09090b] border border-emerald-500/20 rounded-[2rem] w-full max-w-md p-8 relative z-[310] shadow-2xl shadow-emerald-900/20 animate-in fade-in zoom-in-95 duration-300">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                  <IonIcon name="business-outline" className="text-xl" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-white uppercase tracking-wider leading-tight">Googer Transfer</h3>
-                  <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mt-1">Available: R {parseFloat(displayBalance || '0').toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setShowGoogerTransferModal(false)}
-                className="text-slate-500 hover:text-white transition-colors"
-              >
-                <IonIcon name="close" size="large" />
-              </button>
-            </div>
-            
-            <div className="space-y-5">
-              <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Select Admin Target</label>
-                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                  {adminUsers.length === 0 ? (
-                    <div className="p-4 border border-dashed border-white/10 rounded-xl text-center">
-                      <p className="text-xs text-slate-500 italic">No admin users found.</p>
-                      <p className="text-[9px] text-slate-600 mt-1 uppercase tracking-widest">You need at least 1 Admin to transfer funds.</p>
-                    </div>
-                  ) : (
-                    adminUsers.map(admin => (
-                      <div 
-                        key={admin.id}
-                        onClick={() => setTransferTargetAdmin(admin.id)}
-                        className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          transferTargetAdmin === admin.id 
-                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' 
-                          : 'bg-[#0c0c0e] border-[#1a1a1a] text-slate-400 hover:border-white/10 hover:bg-white/5'
-                        }`}
-                      >
-                        <div>
-                          <p className={`text-sm font-bold ${transferTargetAdmin === admin.id ? 'text-white' : 'text-slate-300'}`}>{admin.full_name}</p>
-                          <p className={`text-[9px] font-black uppercase tracking-widest mt-1 ${transferTargetAdmin === admin.id ? 'text-emerald-500' : 'text-slate-600'}`}>{admin.user_type}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className={`text-[10px] font-mono mb-1 ${transferTargetAdmin === admin.id ? 'text-emerald-400/70' : 'text-slate-600'}`}>ID: {admin.user_id}</p>
-                          <p className={`text-[10px] font-bold ${transferTargetAdmin === admin.id ? 'text-emerald-400' : 'text-slate-500'}`}>
-                            Balance <span className="text-white ml-2 block mt-1">R {parseFloat(admin.wallet_balance || '0').toLocaleString()}</span>
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-              
-              <div className="pt-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Transfer Amount</label>
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold whitespace-nowrap">R</div>
-                  <input 
-                    type="number" 
-                    className="w-full bg-[#0c0c0e] border border-[#1a1a1a] rounded-xl pl-10 pr-16 py-4 text-white font-bold text-lg focus:border-emerald-500/50 outline-none transition-all font-mono placeholder:text-slate-700"
-                    placeholder="0.00"
-                    min="0"
-                    step="0.01"
-                    value={googerTransferAmount}
-                    onChange={e => setGoogerTransferAmount(e.target.value)}
-                  />
-                  <button 
-                    onClick={() => setGoogerTransferAmount(displayBalance.toString())}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[9px] font-black uppercase tracking-widest text-emerald-400 hover:text-white hover:bg-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    Max
-                  </button>
-                </div>
-              </div>
-              
-              <button 
-                onClick={handleGoogerTransfer}
-                disabled={transferLoading || !transferTargetAdmin || !googerTransferAmount || Number(googerTransferAmount) <= 0}
-                className="w-full h-14 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/30 disabled:text-emerald-400/50 text-white font-black text-xs uppercase tracking-[0.2em] rounded-xl mt-4 transition-all active:scale-95 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-3"
-              >
-                {transferLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    Processing Transfer...
-                  </>
-                ) : (
-                  <>
-                    <IonIcon name="send-outline" className="text-lg" />
-                    Complete Transfer
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

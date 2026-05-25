@@ -5,8 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import IonIcon from "@/components/IonIcon";
 import { adminService } from "@/services/adminService";
+import { adService } from "@/services/adService";
 
-type AdStatus = "Under Review" | "Active" | "Completed" | "Cancelled";
+type AdStatus = "Under Review" | "Active" | "Paused" | "Completed" | "Cancelled";
 type StatusFilter = "All Ads" | AdStatus;
 const ADS_PER_PAGE = 5;
 
@@ -41,6 +42,7 @@ interface AdRecord {
     edit_draft?: any;
     created_at?: string;
     updated_at?: string;
+    approved_at?: string;
 }
 
 type AdHistoryRow = {
@@ -48,6 +50,8 @@ type AdHistoryRow = {
     adId: string;
     campaignType: string;
     createdAt: string;
+    updatedAt?: string;
+    approvedAt?: string;
     ownerId: number;
     ownerKey?: string;
     ownerName?: string;
@@ -94,19 +98,46 @@ const STATUS_FILTERS: Array<{ label: StatusFilter; slug: string; icon: string }>
     { label: "All Ads", slug: "all", icon: "receipt-outline" },
     { label: "Under Review", slug: "under-review", icon: "time-outline" },
     { label: "Active", slug: "active", icon: "radio-button-on-outline" },
+    { label: "Paused", slug: "paused", icon: "pause-circle-outline" },
     { label: "Completed", slug: "completed", icon: "checkmark-done-outline" },
     { label: "Cancelled", slug: "cancelled", icon: "close-circle-outline" },
 ];
 
-const VALID_STATUSES: AdStatus[] = ["Under Review", "Active", "Completed", "Cancelled"];
+const VALID_STATUSES: AdStatus[] = ["Under Review", "Active", "Paused", "Completed", "Cancelled"];
 const REJECTION_REASONS = [
     "Policy Violation",
     "Incomplete Ad Details",
     "Restricted / Unsupported Content",
 ];
+// Asia/Colombo = UTC+5:30 (manually applied so no Intl/ICU timezone dependency)
+const COLOMBO_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function formatInColombo(utcMs: number): string {
+    const d = new Date(utcMs + COLOMBO_OFFSET_MS);
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const month = MONTH_SHORT[d.getUTCMonth()];
+    const year = d.getUTCFullYear();
+    const rawH = d.getUTCHours();
+    const hh = String(rawH % 12 || 12).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    const ss = String(d.getUTCSeconds()).padStart(2, "0");
+    const ampm = rawH >= 12 ? "pm" : "am";
+    return `${day} ${month} ${year}, ${hh}:${mm}:${ss} ${ampm}`;
+}
 
 function normalizeStatus(status: unknown): AdStatus {
-    return VALID_STATUSES.includes(status as AdStatus) ? (status as AdStatus) : "Under Review";
+    const raw = String(status || "").trim();
+    if (VALID_STATUSES.includes(raw as AdStatus)) return raw as AdStatus;
+
+    const normalized = raw.toLowerCase().replace(/[_-]+/g, " ");
+    if (normalized === "approved" || normalized === "active") return "Active";
+    if (normalized === "paused" || normalized === "pause") return "Paused";
+    if (normalized === "completed" || normalized === "complete" || normalized === "expired") return "Completed";
+    if (normalized === "cancelled" || normalized === "canceled" || normalized === "rejected" || normalized === "removed" || normalized === "deleted") return "Cancelled";
+    if (normalized === "under review" || normalized === "pending" || normalized === "pending approval" || normalized === "review") return "Under Review";
+
+    return "Under Review";
 }
 
 function parseJsonField(value: any) {
@@ -119,13 +150,24 @@ function parseJsonField(value: any) {
     }
 }
 
+function toUtcIso(val: unknown): string {
+    if (!val) return new Date().toISOString();
+    // PostgreSQL TIMESTAMP returns "2026-05-21 07:35:51" — replace space with T, append Z
+    const s = String(val).trim().replace(" ", "T");
+    const withTz = s.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(s) ? s : s + "Z";
+    const d = new Date(withTz);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+}
+
 function normalizeApiAds(input: AdRecord[]) {
     return input
         .map((data): AdHistoryRow => ({
             id: data.id,
             adId: typeof data.ad_id === "string" ? data.ad_id : "",
             campaignType: typeof data.campaign_type === "string" ? data.campaign_type : "Ad Campaign",
-            createdAt: typeof data.created_at === "string" ? data.created_at : new Date().toISOString(),
+            createdAt: toUtcIso(data.created_at),
+            updatedAt: data.updated_at ? toUtcIso(data.updated_at) : undefined,
+            approvedAt: data.approved_at ? toUtcIso(data.approved_at) : undefined,
             ownerId: Number(data.user_id || 0),
             ownerKey: typeof data.owner_username === "string" ? data.owner_username : undefined,
             ownerName: typeof data.full_name === "string" ? data.full_name : undefined,
@@ -154,21 +196,82 @@ function normalizeApiAds(input: AdRecord[]) {
 }
 
 function formatDateTime(value: string) {
-    const parsedDate = new Date(value);
-    const dateLabel = parsedDate.toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-    });
-    const timeLabel = parsedDate.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-    });
-    return `${dateLabel} • ${timeLabel}`;
+    const utcMs = new Date(value).getTime();
+    if (!isNaN(utcMs)) return formatInColombo(utcMs);
+    return value;
 }
 
 function formatCurrency(value?: number) {
     return `R ${Number(value || 0).toLocaleString()}`;
+}
+
+function parseAdDate(value?: string | null) {
+    if (!value) return null;
+    const parsedDate = new Date(value);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function formatExactDateTime(value?: string | Date | null) {
+    const d = value instanceof Date ? value : parseAdDate(value);
+    if (!d) return "Not available";
+    return formatInColombo(d.getTime());
+}
+
+function getAdCreatedDate(ad: AdHistoryRow) {
+    return parseAdDate(ad.createdAt);
+}
+
+function getAdStartDate(ad: AdHistoryRow) {
+    if (ad.status === "Under Review") return null;
+    // Use the stored approval time so completion/cancel updates do not reset the ad timer.
+    return ad.approvedAt ? parseAdDate(ad.approvedAt) : ad.updatedAt ? parseAdDate(ad.updatedAt) : getAdCreatedDate(ad);
+}
+
+function getAdEndDate(ad: AdHistoryRow) {
+    const startDate = getAdStartDate(ad);
+    if (!startDate || !ad.durationDays || ad.durationDays <= 0) return null;
+
+    const endDate = new Date(startDate.getTime() + ad.durationDays * 24 * 60 * 60 * 1000);
+    return endDate;
+}
+
+function formatRemainingTime(ad: AdHistoryRow, nowMs: number) {
+    if (ad.status === "Under Review") return "Starts after approval";
+    if (ad.status === "Completed") return "Completed";
+    if (ad.status === "Cancelled") return "Cancelled";
+
+    const endDate = getAdEndDate(ad);
+    if (!endDate) return "Not set";
+
+    const diffMs = endDate.getTime() - nowMs;
+    if (diffMs <= 0) return "Ended";
+
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+}
+
+function getStartTimeLabel(ad: AdHistoryRow) {
+    const startDate = getAdStartDate(ad);
+    return startDate ? formatExactDateTime(startDate) : "Starts after approval";
+}
+
+function getEndTimeLabel(ad: AdHistoryRow) {
+    const endDate = getAdEndDate(ad);
+    return endDate ? formatExactDateTime(endDate) : "Not set";
+}
+
+function formatSpend(value?: number | string) {
+    const amount = Number(value || 0);
+    if (amount === 0) return <span className="text-white/45">R 0</span>;
+    return <span className="text-red-400">-R {amount.toLocaleString()}</span>;
 }
 
 function formatReachCount(value: number) {
@@ -212,6 +315,7 @@ function getLocationLabel(ad: AdHistoryRow) {
 function getStatusClasses(status: AdStatus) {
     if (status === "Under Review") return "border-amber-400/25 bg-amber-400/10 text-amber-200";
     if (status === "Active") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+    if (status === "Paused") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
     if (status === "Completed") return "border-violet-400/25 bg-violet-400/10 text-violet-200";
     return "border-rose-400/25 bg-rose-400/10 text-rose-200";
 }
@@ -265,7 +369,7 @@ function getCtaConfig(ad: AdHistoryRow) {
 export default function AdsTable() {
     const pathname = usePathname();
     const [ads, setAds] = useState<AdHistoryRow[]>([]);
-    const [activeFilter, setActiveFilter] = useState<StatusFilter>("All Ads");
+    const [activeFilter, setActiveFilter] = useState<StatusFilter>("Under Review");
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedAd, setSelectedAd] = useState<AdHistoryRow | null>(null);
     const [loading, setLoading] = useState(true);
@@ -287,6 +391,11 @@ export default function AdsTable() {
         reason: REJECTION_REASONS[0],
         note: "",
     });
+    const [coinMessage, setCoinMessage] = useState<string | null>(null);
+    const [coinLoading, setCoinLoading] = useState(false);
+    const [nowTick, setNowTick] = useState(() => Date.now());
+    const [mediaModal, setMediaModal] = useState<{ src: string; type: "image" | "video"; title: string } | null>(null);
+    const [approvalDurationDays, setApprovalDurationDays] = useState<number | null>(null);
 
     const loadAds = async (isPolling = false) => {
         try {
@@ -308,6 +417,15 @@ export default function AdsTable() {
         const interval = setInterval(() => loadAds(true), 30000);
         return () => clearInterval(interval);
     }, []);
+
+    useEffect(() => {
+        const interval = setInterval(() => setNowTick(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        setCoinMessage(null);
+    }, [selectedAd?.adId]);
 
     const normalizedSearch = searchQuery.trim().toLowerCase();
     const filteredAds = (activeFilter === "All Ads" ? ads : ads.filter((ad) => ad.status === activeFilter))
@@ -358,6 +476,7 @@ export default function AdsTable() {
     };
 
     const openConfirm = (adId: string, nextStatus: AdStatus) => {
+        const currentStatus = ads.find((ad) => ad.adId === adId)?.status;
         const configs: Record<AdStatus, Omit<ConfirmDialog, "open" | "adId" | "nextStatus">> = {
             "Under Review": {
                 title: "Move Ad to Review",
@@ -366,14 +485,22 @@ export default function AdsTable() {
                 confirmClass: "bg-amber-600 hover:bg-amber-500 text-white",
             },
             Active: {
-                title: "Approve Ad",
-                message: "This ad will move to active immediately.",
-                confirmLabel: "Approve",
+                title: currentStatus === "Paused" ? "Unpause Ad" : "Approve Ad",
+                message: currentStatus === "Paused"
+                    ? "This ad will start showing again in the Home Feed and Shop Feed."
+                    : "This ad will move to active immediately.",
+                confirmLabel: currentStatus === "Paused" ? "Unpause Ad" : "Approve",
                 confirmClass: "bg-emerald-600 hover:bg-emerald-500 text-white",
+            },
+            Paused: {
+                title: "Pause Ad",
+                message: "This ad will stop showing in the Home Feed and Shop Feed until it is unpaused.",
+                confirmLabel: "Pause Ad",
+                confirmClass: "bg-sky-600 hover:bg-sky-500 text-white",
             },
             Completed: {
                 title: "Mark Completed",
-                message: "This ad will move to completed.",
+                message: "This ad will be marked as completed and will not return to approval.",
                 confirmLabel: "Mark Completed",
                 confirmClass: "bg-violet-600 hover:bg-violet-500 text-white",
             },
@@ -386,18 +513,33 @@ export default function AdsTable() {
         };
 
         setConfirmDialog({ open: true, adId, nextStatus, ...configs[nextStatus] });
+        setApprovalDurationDays(null);
     };
 
     const handleConfirmedAction = async () => {
         if (!confirmDialog.adId) return;
         setIsProcessing(true);
         try {
-            await adminService.updateAdStatus(confirmDialog.adId, confirmDialog.nextStatus);
+            const opts: { rejectionReason?: string; rejectionNote?: string; durationDays?: number } =
+                confirmDialog.nextStatus === "Cancelled"
+                    ? { rejectionReason: "Cancelled by Admin", rejectionNote: "Cancelled by Admin" }
+                    : {};
+            if (confirmDialog.nextStatus === "Active" && approvalDurationDays !== null) {
+                opts.durationDays = approvalDurationDays;
+            }
+            await adminService.updateAdStatus(confirmDialog.adId, confirmDialog.nextStatus, opts);
+            const currentAd = ads.find((ad) => ad.adId === confirmDialog.adId);
+            const approvalTimeOverride = confirmDialog.nextStatus === "Active" && (!currentAd?.approvedAt || currentAd.status === "Under Review")
+                ? { approvedAt: new Date().toISOString() }
+                : {};
+            const durationOverride = confirmDialog.nextStatus === "Active" && approvalDurationDays !== null
+                ? { durationDays: approvalDurationDays }
+                : {};
             setAds((prev) => prev.map((ad) => (
-                ad.adId === confirmDialog.adId ? { ...ad, status: confirmDialog.nextStatus } : ad
+                ad.adId === confirmDialog.adId ? { ...ad, status: confirmDialog.nextStatus, ...approvalTimeOverride, ...durationOverride } : ad
             )));
             if (selectedAd?.adId === confirmDialog.adId) {
-                setSelectedAd({ ...selectedAd, status: confirmDialog.nextStatus });
+                setSelectedAd({ ...selectedAd, status: confirmDialog.nextStatus, ...approvalTimeOverride, ...durationOverride });
             }
         } catch (err: any) {
             alert(`Error: ${err.message}`);
@@ -449,6 +591,19 @@ export default function AdsTable() {
             alert(`Error: ${err.message}`);
         } finally {
             setIsProcessing(false);
+        }
+    };
+
+    const handleCollectCoin = async () => {
+        if (!selectedAd) return;
+        setCoinLoading(true);
+        try {
+            const result = await adService.collectCoin(selectedAd.adId);
+            setCoinMessage(result?.message || "Coin collected successfully");
+        } catch (err: any) {
+            setCoinMessage(err.message || "Failed to collect coin");
+        } finally {
+            setCoinLoading(false);
         }
     };
 
@@ -581,7 +736,10 @@ export default function AdsTable() {
                                 <div className="px-4 py-4 sm:px-5 md:px-6">
                                     <div className="grid gap-3 rounded-[1.5rem] border border-white/6 bg-[#121212] p-3 xl:grid-cols-[1.75fr_0.3fr]">
                                         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
-                                            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[1rem] bg-black/25">
+                                            <div
+                                                className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-[1rem] bg-black/25 group ${ad.mediaPreview ? "cursor-pointer" : ""}`}
+                                                onClick={() => ad.mediaPreview && setMediaModal({ src: ad.mediaPreview, type: ad.mediaType === "video" ? "video" : "image", title: getTitle(ad) })}
+                                            >
                                                 {ad.mediaType === "video" && ad.mediaPreview ? (
                                                     <video src={ad.mediaPreview} className="h-full w-full object-cover" muted playsInline />
                                                 ) : ad.mediaPreview ? (
@@ -589,6 +747,11 @@ export default function AdsTable() {
                                                 ) : (
                                                     <div className="flex h-full w-full items-center justify-center text-white/30">
                                                         <IonIcon name={ad.mediaType === "video" ? "videocam-outline" : "image-outline"} className="text-3xl" />
+                                                    </div>
+                                                )}
+                                                {ad.mediaPreview && (
+                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <IonIcon name={ad.mediaType === "video" ? "play-circle-outline" : "expand-outline"} className="text-2xl text-white" />
                                                     </div>
                                                 )}
                                             </div>
@@ -647,23 +810,31 @@ export default function AdsTable() {
                                                         Reject
                                                     </button>
                                                 </>
-                                            ) : (
+                                            ) : ad.status === "Active" || ad.status === "Paused" ? (
                                                 <>
                                                     <button
                                                         type="button"
-                                                        onClick={() => openConfirm(ad.adId, "Completed")}
-                                                        className="inline-flex min-w-[96px] items-center justify-center rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-[8px] font-black uppercase tracking-[0.08em] text-violet-200 transition hover:bg-violet-500/20"
+                                                        onClick={() => openConfirm(ad.adId, ad.status === "Paused" ? "Active" : "Paused")}
+                                                        className={`inline-flex min-w-[96px] items-center justify-center rounded-xl border px-3 py-2 text-[8px] font-black uppercase tracking-[0.08em] transition ${
+                                                            ad.status === "Paused"
+                                                                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                                                                : "border-sky-500/20 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20"
+                                                        }`}
                                                     >
-                                                        Complete
+                                                        {ad.status === "Paused" ? "Unpause" : "Pause"}
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={() => openConfirm(ad.adId, "Cancelled")}
+                                                        onClick={() => openRejectDialog(ad.adId)}
                                                         className="inline-flex min-w-[96px] items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-[8px] font-black uppercase tracking-[0.08em] text-white/70 transition hover:bg-white/[0.09] hover:text-white"
                                                     >
                                                         Cancel
                                                     </button>
                                                 </>
+                                            ) : (
+                                                <span className="inline-flex min-w-[96px] items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[8px] font-black uppercase tracking-[0.08em] text-white/45">
+                                                    {ad.status}
+                                                </span>
                                             )}
                                         </div>
                                     </div>
@@ -710,6 +881,18 @@ export default function AdsTable() {
                                                     <span className="text-white/55">Clicks</span>
                                                     <span>{ad.clicks || 0}</span>
                                                 </div>
+                                                <div className="flex items-center justify-between gap-2 border-t border-white/8 pt-1">
+                                                    <span className="text-white/55">Ad Start Time</span>
+                                                    <span className="text-right">{getStartTimeLabel(ad)}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="text-white/55">Ad End Time</span>
+                                                    <span className="text-right">{getEndTimeLabel(ad)}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="text-white/55">Remaining Time</span>
+                                                    <span className="text-right">{formatRemainingTime(ad, nowTick)}</span>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -722,7 +905,7 @@ export default function AdsTable() {
                                                 </div>
                                                 <div className="flex items-center justify-between gap-2">
                                                     <span className="text-white/55">Spend</span>
-                                                    <span>{formatCurrency(ad.spend)}</span>
+                                                    {formatSpend(ad.spend)}
                                                 </div>
                                                 <div className="flex items-center justify-between gap-2">
                                                     <span className="text-white/55">Remaining</span>
@@ -801,9 +984,12 @@ export default function AdsTable() {
                                 <p className="text-[10px] font-black uppercase tracking-[0.12em] text-white/28">Purchased Ad</p>
                                     <div className="mt-3 rounded-[1.35rem] border border-white/8 bg-white/[0.04] p-3">
                                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[0.9rem] bg-black/25 sm:h-16 sm:w-16">
+                                        <div
+                                            className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-[0.9rem] bg-black/25 sm:h-16 sm:w-16 group ${selectedAd.mediaPreview ? "cursor-pointer" : ""}`}
+                                            onClick={() => selectedAd.mediaPreview && setMediaModal({ src: selectedAd.mediaPreview, type: selectedAd.mediaType === "video" ? "video" : "image", title: getTitle(selectedAd) })}
+                                        >
                                             {selectedAd.mediaType === "video" && selectedAd.mediaPreview ? (
-                                                <video src={selectedAd.mediaPreview} className="h-full w-full object-cover" muted playsInline controls />
+                                                <video src={selectedAd.mediaPreview} className="h-full w-full object-cover" muted playsInline />
                                             ) : selectedAd.mediaPreview ? (
                                                 <img src={selectedAd.mediaPreview} alt={getTitle(selectedAd)} className="h-full w-full object-cover" />
                                             ) : (
@@ -811,10 +997,16 @@ export default function AdsTable() {
                                                     <IonIcon name={selectedAd.mediaType === "video" ? "videocam-outline" : "image-outline"} className="text-3xl" />
                                                 </div>
                                             )}
+                                            {selectedAd.mediaPreview && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <IonIcon name={selectedAd.mediaType === "video" ? "play-circle-outline" : "expand-outline"} className="text-xl text-white" />
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="min-w-0">
                                             <p className="truncate text-[12px] font-black uppercase text-white">{getTitle(selectedAd)}</p>
                                             <p className="mt-1 truncate text-[9px] font-bold uppercase tracking-[0.08em] text-white/38">{selectedAd.campaignType}</p>
+                                            <p className="mt-1 truncate text-[9px] font-semibold text-white/48">Created {formatExactDateTime(selectedAd.createdAt)}</p>
                                             <Link
                                                 href={`/admin/users/${selectedAd.ownerId}?returnTo=${pathname}&from=Ads`}
                                                 className="mt-1 block truncate text-[9px] font-semibold text-white/62 hover:text-white"
@@ -830,8 +1022,15 @@ export default function AdsTable() {
                                 <div className="rounded-[1.2rem] border border-white/8 bg-white/[0.03] p-3">
                                     <p className="text-[8px] font-black uppercase tracking-[0.12em] text-white/28">Details</p>
                                     <div className="mt-2 space-y-1.5 text-[10px] font-bold text-white">
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Created Time</span><span className="text-right">{formatExactDateTime(selectedAd.createdAt)}</span></div>
+                                        {(selectedAd.approvedAt || selectedAd.updatedAt) && selectedAd.status !== "Under Review" && (
+                                            <div className="flex items-center justify-between gap-3"><span className="text-white/45">Approved Time</span><span className="text-right">{formatExactDateTime(selectedAd.approvedAt || selectedAd.updatedAt)}</span></div>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Ad Start Time</span><span className="text-right">{getStartTimeLabel(selectedAd)}</span></div>
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Ad End Time</span><span className="text-right">{getEndTimeLabel(selectedAd)}</span></div>
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Remaining Time</span><span className="text-right">{formatRemainingTime(selectedAd, nowTick)}</span></div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Budget</span><span>{formatCurrency(selectedAd.budget)}</span></div>
-                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Spend</span><span>{formatCurrency(selectedAd.spend)}</span></div>
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Spend</span>{formatSpend(selectedAd.spend)}</div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Remaining</span><span>{formatCurrency(selectedAd.remainingBudget)}</span></div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Duration</span><span>{selectedAd.durationDays || 0} days</span></div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Status</span><span>{selectedAd.status}</span></div>
@@ -884,21 +1083,77 @@ export default function AdsTable() {
                                 );
                             })()}
 
+                            <div className="rounded-[1.2rem] border border-white/8 bg-white/[0.03] p-3">
+                                <p className="text-[8px] font-black uppercase tracking-[0.12em] text-white/28">Coin Actions</p>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleCollectCoin}
+                                        disabled={coinLoading}
+                                        className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] px-4 text-[9px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-white/[0.09] disabled:opacity-50"
+                                    >
+                                        <IonIcon name="heart-outline" className="mr-2 text-base" />
+                                        Like
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCollectCoin}
+                                        disabled={coinLoading}
+                                        className="inline-flex h-9 items-center justify-center rounded-full bg-blue-600 px-4 text-[9px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-blue-500 disabled:opacity-50"
+                                    >
+                                        <IonIcon name="cash-outline" className="mr-2 text-base" />
+                                        {coinLoading ? "Collecting..." : "Collect Coin"}
+                                    </button>
+                                </div>
+                                {coinMessage && (
+                                    <p className="mt-2 text-[10px] font-semibold text-white/55">{coinMessage}</p>
+                                )}
+                            </div>
+
                             <div className="grid gap-2 sm:grid-cols-2">
-                                <button
-                                    type="button"
-                                    onClick={() => { setSelectedAd(null); openConfirm(selectedAd.adId, "Active"); }}
-                                    className="inline-flex h-11 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-[9px] font-black uppercase tracking-[0.08em] text-emerald-300 transition hover:bg-emerald-500/20"
-                                >
-                                    Approve
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => { setSelectedAd(null); openRejectDialog(selectedAd.adId); }}
-                                    className="inline-flex h-11 items-center justify-center rounded-xl border border-rose-500/20 bg-rose-500/10 text-[9px] font-black uppercase tracking-[0.08em] text-rose-300 transition hover:bg-rose-500/20"
-                                >
-                                    Reject
-                                </button>
+                                {selectedAd.status === "Under Review" ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setSelectedAd(null); openConfirm(selectedAd.adId, "Active"); }}
+                                            className="inline-flex h-11 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-[9px] font-black uppercase tracking-[0.08em] text-emerald-300 transition hover:bg-emerald-500/20"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setSelectedAd(null); openRejectDialog(selectedAd.adId); }}
+                                            className="inline-flex h-11 items-center justify-center rounded-xl border border-rose-500/20 bg-rose-500/10 text-[9px] font-black uppercase tracking-[0.08em] text-rose-300 transition hover:bg-rose-500/20"
+                                        >
+                                            Reject
+                                        </button>
+                                    </>
+                                ) : selectedAd.status === "Active" || selectedAd.status === "Paused" ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setSelectedAd(null); openConfirm(selectedAd.adId, selectedAd.status === "Paused" ? "Active" : "Paused"); }}
+                                            className={`inline-flex h-11 items-center justify-center rounded-xl border text-[9px] font-black uppercase tracking-[0.08em] transition ${
+                                                selectedAd.status === "Paused"
+                                                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                                                    : "border-sky-500/20 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20"
+                                            }`}
+                                        >
+                                            {selectedAd.status === "Paused" ? "Unpause" : "Pause"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setSelectedAd(null); openRejectDialog(selectedAd.adId); }}
+                                            className="inline-flex h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-[9px] font-black uppercase tracking-[0.08em] text-white/70 transition hover:bg-white/[0.09] hover:text-white"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </>
+                                ) : (
+                                    <div className="inline-flex h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-[9px] font-black uppercase tracking-[0.08em] text-white/45 sm:col-span-2">
+                                        {selectedAd.status}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -912,7 +1167,9 @@ export default function AdsTable() {
                         onClick={() => !isProcessing && setRejectDialog((prev) => ({ ...prev, open: false }))}
                     />
                     <div className="relative z-[136] w-full max-w-[420px] rounded-[1.5rem] border border-white/10 bg-[#121212] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)]">
-                        <h3 className="text-[1rem] font-black uppercase tracking-[0.06em] text-white">Reject Ad</h3>
+                        <h3 className="text-[1rem] font-black uppercase tracking-[0.06em] text-white">
+                            {ads.find(a => a.adId === rejectDialog.adId)?.status === "Under Review" ? "Reject Ad" : "Cancel Ad"}
+                        </h3>
                         <p className="mt-2 text-[10px] font-bold leading-5 text-white/50">
                             Select a rejection reason or enter a custom note. Rejecting this ad moves it to cancelled and refunds the held budget back to the user wallet history.
                         </p>
@@ -972,6 +1229,40 @@ export default function AdsTable() {
                 </div>
             )}
 
+            {mediaModal && (
+                <div
+                    className="fixed inset-0 z-[160] flex items-center justify-center bg-black/95 backdrop-blur-md p-4"
+                    onClick={() => setMediaModal(null)}
+                >
+                    <button
+                        type="button"
+                        onClick={() => setMediaModal(null)}
+                        className="absolute top-4 right-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-all z-10"
+                    >
+                        <IonIcon name="close-outline" className="text-xl" />
+                    </button>
+                    <div className="w-full max-w-4xl" onClick={e => e.stopPropagation()}>
+                        <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest text-white/35">{mediaModal.title}</p>
+                        {mediaModal.type === "video" ? (
+                            // eslint-disable-next-line jsx-a11y/media-has-caption
+                            <video
+                                src={mediaModal.src}
+                                controls
+                                autoPlay
+                                className="w-full max-h-[80vh] rounded-[1.5rem] bg-black shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+                            />
+                        ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={mediaModal.src}
+                                alt={mediaModal.title}
+                                className="mx-auto max-h-[80vh] max-w-full rounded-[1.5rem] object-contain shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+                            />
+                        )}
+                    </div>
+                </div>
+            )}
+
             {confirmDialog.open && (
                 <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4">
                     <div
@@ -981,6 +1272,7 @@ export default function AdsTable() {
                     <div className="relative z-[131] w-full max-w-[360px] rounded-[1.5rem] border border-white/10 bg-[#121212] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.45)]">
                         <h3 className="text-[1rem] font-black uppercase tracking-[0.06em] text-white">{confirmDialog.title}</h3>
                         <p className="mt-2 text-[10px] font-bold leading-5 text-white/50">{confirmDialog.message}</p>
+
                         <div className="mt-5 grid gap-2 sm:grid-cols-2">
                             <button
                                 type="button"

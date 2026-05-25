@@ -13,58 +13,57 @@ export default function ClientLayout({
     const pathname = usePathname();
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    
+
+    const isLoginPage = pathname === "/";
+
+    if (isLoginPage) {
+        return <>{children}</>;
+    }
+
     return (
         <div className="flex min-h-screen bg-black">
             {/* Mobile Backdrop */}
             {isMobileMenuOpen && (
-                <div 
+                <div
                     className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[45] md:hidden animate-in fade-in duration-300"
                     onClick={() => setIsMobileMenuOpen(false)}
                 />
             )}
 
             {/* Sidebar Component */}
-            <Sidebar 
-                isCollapsed={isSidebarCollapsed} 
-                onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+            <Sidebar
+                isCollapsed={isSidebarCollapsed}
+                onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                 isMobileOpen={isMobileMenuOpen}
                 onCloseMobile={() => setIsMobileMenuOpen(false)}
             />
 
             {/* Main Content Workspace */}
             <div className={`flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300 ${isSidebarCollapsed ? "md:pl-20" : "md:pl-64"}`}>
-                
+
                 {/* Header / Topbar Area */}
                 <header className="sticky top-0 z-40 flex min-h-16 w-full items-center justify-between gap-3 border-b border-[#1a1a1a] bg-black/80 px-3 backdrop-blur-md sm:px-4 md:px-8">
                     <div className="flex min-w-0 items-center gap-2 md:gap-4">
                         {/* Mobile Toggle */}
-                        <button 
+                        <button
                             onClick={() => setIsMobileMenuOpen(true)}
                             className="shrink-0 p-2 text-slate-400 hover:text-white md:hidden"
                         >
                             <IonIcon name="menu-outline" className="text-2xl" />
                         </button>
-                        
+
                         <h2 className="truncate text-sm font-semibold capitalize text-white sm:max-w-[230px] sm:text-base md:max-w-none md:text-lg">
                             {pathname?.split('/').pop()?.replace(/-/g, ' ') || 'Dashboard'}
                         </h2>
                     </div>
-                    
-                    <div className="flex shrink-0 items-center gap-1.5 sm:gap-3 md:gap-4">
-                        <button className="p-2 text-slate-400 transition-colors hover:text-white">
-                            <IonIcon name="notifications-outline" className="text-xl" />
-                        </button>
-                        <button className="p-2 text-slate-400 transition-colors hover:text-white">
-                            <IonIcon name="settings-outline" className="text-xl" />
-                        </button>
-                        <div className="mx-1 hidden h-8 w-px bg-slate-800 sm:block md:mx-2"></div>
+
+                    <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                         <div className="flex items-center gap-2 sm:gap-3">
                             <div className="text-right hidden sm:block">
-                                <p className="text-sm font-medium text-white leading-none">Admin</p>
-                                <p className="text-[10px] text-slate-500 mt-1">Super Admin</p>
+                                <p className="text-[11px] font-bold text-white leading-none">Admin</p>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mt-1">Super Admin</p>
                             </div>
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">
                                 AD
                             </div>
                         </div>

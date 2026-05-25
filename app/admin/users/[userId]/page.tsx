@@ -122,6 +122,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
             {/* Avatar */}
             <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-8 border-[#09090b] shadow-2xl bg-slate-800 shrink-0">
               <Image
+                unoptimized
                 src={profileImage}
                 alt={user.full_name}
                 fill

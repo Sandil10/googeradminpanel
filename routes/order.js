@@ -2,12 +2,13 @@ const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
 const authenticateToken = require('../middleware/auth');
+const adminOnly = require('../middleware/adminOnly');
 
-router.get('/all', orderController.getAllOrders);
+router.get('/all', authenticateToken, adminOnly, orderController.getAllOrders);
 router.post('/create', authenticateToken, orderController.createOrder);
 router.get('/buyer', authenticateToken, orderController.getBuyerOrders);
 router.get('/seller', authenticateToken, orderController.getSellerOrders);
 router.put('/:id/status', authenticateToken, orderController.updateOrderStatus);
-router.patch('/:id/admin-status', orderController.updateAdminOrderStatus);
+router.patch('/:id/admin-status', authenticateToken, adminOnly, orderController.updateAdminOrderStatus);
 
 module.exports = router;

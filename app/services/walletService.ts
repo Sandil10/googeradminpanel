@@ -1,4 +1,5 @@
 const API_URL = '/api';
+const isClient = typeof window !== 'undefined';
 
 
 const storage = {

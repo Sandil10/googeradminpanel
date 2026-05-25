@@ -105,13 +105,6 @@ export default function DeactivatedUsersPage() {
             Users marked for deletion are kept here for 7 days before permanent removal.
           </p>
         </div>
-        <Link 
-          href="/admin/users/all"
-          className="h-11 px-6 rounded-2xl bg-white/5 border border-white/10 text-slate-400 text-[8px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all flex items-center gap-2"
-        >
-          <IonIcon name="arrow-back-outline" className="text-sm" />
-          Back to All Users
-        </Link>
       </div>
 
       <div className="bg-[#09090b] border border-[#1a1a1a] rounded-[2rem] shadow-2xl overflow-hidden min-h-[400px]">
