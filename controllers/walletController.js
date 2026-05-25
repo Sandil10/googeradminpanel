@@ -1,5 +1,224 @@
 const pool = require('../config/database');
 
+const REFERRAL_TRANSFER_TYPE = 'referral_commission';
+
+function normalizePercentage(value, fallback = 0) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(100, Math.max(0, number));
+}
+
+async function resolveGoogerMainWalletUserId(client) {
+    const configuredId = Number.parseInt(String(process.env.GOOGER_MAIN_USER_ID || '').trim(), 10);
+    if (Number.isFinite(configuredId) && configuredId > 0) {
+        const configuredResult = await client.query('SELECT id FROM users WHERE id = $1 LIMIT 1', [configuredId]);
+        if (configuredResult.rows.length > 0) return configuredResult.rows[0].id;
+    }
+
+    const adminResult = await client.query(
+        `SELECT id FROM users
+         WHERE LOWER(COALESCE(user_type, '')) = 'admin'
+         ORDER BY id ASC
+         LIMIT 1`
+    );
+    if (adminResult.rows.length > 0) return adminResult.rows[0].id;
+
+    const googerResult = await client.query(
+        `SELECT id FROM users
+         WHERE LOWER(username) = 'googer'
+         ORDER BY id ASC
+         LIMIT 1`
+    );
+    if (googerResult.rows.length > 0) return googerResult.rows[0].id;
+
+    return 1;
+}
+
+async function distributeWalletDiscountCommission(client, {
+    buyerId,
+    payerId,
+    discountAmount,
+    sourceId,
+    description,
+}) {
+    const buyer = Number(buyerId);
+    const payer = Number(payerId) || buyer;
+    const poolAmount = Number(Number(discountAmount || 0).toFixed(2));
+    if (!Number.isFinite(buyer) || buyer <= 0 || !Number.isFinite(poolAmount) || poolAmount <= 0 || !sourceId) {
+        return [];
+    }
+
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS referral_commission_payouts (
+            id SERIAL PRIMARY KEY,
+            source_type VARCHAR(40) NOT NULL,
+            source_id VARCHAR(120) NOT NULL,
+            buyer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            earner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            level INTEGER NOT NULL,
+            pool_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+            commission_percentage NUMERIC(8,2) NOT NULL DEFAULT 0,
+            amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+            wallet_transfer_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_type, source_id, earner_id, level)
+        )
+    `);
+
+    const sourceType = 'wallet_discount';
+    const existingForSource = await client.query(
+        `SELECT 1
+         FROM referral_commission_payouts
+         WHERE source_type = $1
+           AND source_id::text = $2
+         LIMIT 1`,
+        [sourceType, String(sourceId)]
+    );
+    if (existingForSource.rows.length > 0) return [];
+
+    const creditPayout = async ({
+        earnerId,
+        level,
+        levelName,
+        commissionPercentage,
+        amount,
+        note,
+        transferType = REFERRAL_TRANSFER_TYPE,
+    }) => {
+        const safeAmount = Number(Number(amount || 0).toFixed(2));
+        if (!Number.isFinite(safeAmount) || safeAmount <= 0) return null;
+
+        const inserted = await client.query(
+            `INSERT INTO referral_commission_payouts
+                (source_type, source_id, buyer_id, earner_id, level, pool_amount, commission_percentage, amount)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id`,
+            [sourceType, String(sourceId), buyer, earnerId, level, poolAmount, commissionPercentage, safeAmount]
+        );
+
+        await client.query(
+            'UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2',
+            [safeAmount, earnerId]
+        );
+
+        const transfer = await client.query(
+            `INSERT INTO wallet_transfers
+                (sender_id, receiver_id, amount, note, type, status, commission, commission_percentage, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, 'completed', $3, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             RETURNING id`,
+            [payer, earnerId, safeAmount, note, transferType, commissionPercentage]
+        );
+
+        await client.query(
+            'UPDATE referral_commission_payouts SET wallet_transfer_id = $1 WHERE id = $2',
+            [transfer.rows[0].id, inserted.rows[0].id]
+        );
+
+        return { level, levelName, earnerId: Number(earnerId), amount: safeAmount, commissionPercentage, poolAmount };
+    };
+
+    const payouts = [];
+    let distributedAmount = 0;
+
+    const googerLevel = await client.query(
+        `SELECT level, name AS level_name, commission_percentage
+         FROM referral_level_settings
+         WHERE level = 0 AND is_active = TRUE
+         LIMIT 1`
+    );
+
+    if (googerLevel.rows.length > 0) {
+        const googerUserId = await resolveGoogerMainWalletUserId(client);
+        const googerPercentage = normalizePercentage(googerLevel.rows[0].commission_percentage);
+        const googerAmount = Math.min(poolAmount, Number(((poolAmount * googerPercentage) / 100).toFixed(2)));
+
+        if (googerUserId && googerUserId !== buyer && googerAmount > 0) {
+            const payout = await creditPayout({
+                earnerId: googerUserId,
+                level: 0,
+                levelName: googerLevel.rows[0].level_name || 'Googer',
+                commissionPercentage: googerPercentage,
+                amount: googerAmount,
+                note: `Wallet Discount Distribution - Googer - ${description}`,
+            });
+            if (payout) {
+                distributedAmount = Number((distributedAmount + payout.amount).toFixed(2));
+                payouts.push(payout);
+            }
+        }
+    }
+
+    const uplines = await client.query(
+        `WITH RECURSIVE uplines AS (
+            SELECT rr.referred_by AS earner_id, 1 AS level
+            FROM referral_relationships rr
+            WHERE rr.user_id = $1
+
+            UNION ALL
+
+            SELECT rr.referred_by AS earner_id, uplines.level + 1 AS level
+            FROM referral_relationships rr
+            JOIN uplines ON rr.user_id = uplines.earner_id
+            WHERE uplines.level < (
+                SELECT GREATEST(1, COALESCE(MAX(level), 5))
+                FROM referral_level_settings
+                WHERE level <> 99
+            )
+        )
+        SELECT uplines.earner_id,
+               uplines.level,
+               rls.name AS level_name,
+               COALESCE(rls.commission_percentage, 0)::numeric AS commission_percentage
+        FROM uplines
+        JOIN referral_level_settings rls
+          ON rls.level = uplines.level
+         AND rls.is_active = TRUE
+        WHERE uplines.earner_id <> $1
+          AND rls.level <> 99
+        ORDER BY uplines.level ASC`,
+        [buyer]
+    );
+
+    for (const row of uplines.rows) {
+        const remaining = Number((poolAmount - distributedAmount).toFixed(2));
+        if (remaining <= 0) break;
+        const commissionPercentage = normalizePercentage(row.commission_percentage);
+        const levelAmount = Math.min(remaining, Number(((poolAmount * commissionPercentage) / 100).toFixed(2)));
+        if (levelAmount <= 0) continue;
+
+        const payout = await creditPayout({
+            earnerId: row.earner_id,
+            level: Number(row.level),
+            levelName: row.level_name,
+            commissionPercentage,
+            amount: levelAmount,
+            note: `Wallet Discount Distribution - Level ${row.level}${row.level_name ? ` ${row.level_name}` : ''} - ${description}`,
+        });
+
+        if (payout) {
+            distributedAmount = Number((distributedAmount + payout.amount).toFixed(2));
+            payouts.push(payout);
+        }
+    }
+
+    const buyerRemainder = Number(Math.max(0, poolAmount - distributedAmount).toFixed(2));
+    if (buyerRemainder > 0) {
+        const buyerPercentage = Number(((buyerRemainder / poolAmount) * 100).toFixed(2));
+        const payout = await creditPayout({
+            earnerId: buyer,
+            level: 99,
+            levelName: 'Buyer',
+            commissionPercentage: buyerPercentage,
+            amount: buyerRemainder,
+            note: `Wallet Discount Balance - Buyer - ${description}`,
+            transferType: 'discount_refund',
+        });
+        if (payout) payouts.push(payout);
+    }
+
+    return payouts;
+}
+
 // Search users by user_id or username
 exports.searchUsers = async (req, res) => {
     try {
@@ -210,6 +429,11 @@ exports.respondToRequest = async (req, res) => {
         const transfer = requestResult.rows[0];
         const transferAmount = parseFloat(transfer.amount);
         const transferType = transfer.type; // 'sell' or 'request' (buy)
+        const rawCommission = parseFloat(transfer.commission || 0);
+        const commission = Math.min(
+            transferAmount,
+            Math.max(0, Number.isFinite(rawCommission) ? rawCommission : 0)
+        );
 
         if (action === 'reject') {
             // If type is 'sell', return the held amount back to sender
@@ -240,10 +464,9 @@ exports.respondToRequest = async (req, res) => {
                 // For 'sell': Split the held amount
                 // Example: transferAmount = 100, commission = 10
                 // Receiver gets: 100 - 10 = 90
-                // Sender gets back: 10 (commission)
+                // Discount/commission is distributed through the referral tree
 
-                const commission = parseFloat(transfer.commission || 0);
-                const amountToReceiver = transferAmount - commission; 
+                const amountToReceiver = Math.max(0, transferAmount - commission); 
 
                 // Remove full amount from sender's hold_balance
                 await client.query(
@@ -257,9 +480,15 @@ exports.respondToRequest = async (req, res) => {
                     [amountToReceiver, userId]
                 );
 
-                // For 'sell' type transactions, Googer keeps the commission.
-                // Since total money deducted was transferAmount and receiver only got amountToReceiver,
-                // the difference (commission) is now part of the system's googer_balance (sum of commissions).
+                if (commission > 0) {
+                    await distributeWalletDiscountCommission(client, {
+                        buyerId: userId,
+                        payerId: transfer.sender_id,
+                        discountAmount: commission,
+                        sourceId: `wallet-${transfer.id}`,
+                        description: `Wallet Sell Transfer #${transfer.id}`,
+                    });
+                }
             } else {
                 // For 'request' (buy): Deduct from receiver and give to sender
                 // Check receiver's balance first
@@ -280,11 +509,23 @@ exports.respondToRequest = async (req, res) => {
                     [transferAmount, userId]
                 );
 
-                // Add to sender (User A who requested)
+                const amountToSender = Math.max(0, transferAmount - commission);
+
+                // Add the net amount to sender (User A who requested)
                 await client.query(
                     'UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2',
-                    [transferAmount, transfer.sender_id]
+                    [amountToSender, transfer.sender_id]
                 );
+
+                if (commission > 0) {
+                    await distributeWalletDiscountCommission(client, {
+                        buyerId: userId,
+                        payerId: transfer.sender_id,
+                        discountAmount: commission,
+                        sourceId: `wallet-${transfer.id}`,
+                        description: `Wallet Buy Request #${transfer.id}`,
+                    });
+                }
             }
 
             // Update transfer status to accepted
