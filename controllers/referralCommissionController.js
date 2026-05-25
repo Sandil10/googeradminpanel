@@ -1,9 +1,13 @@
 const pool = require('../config/database');
 
+const PRODUCT_POOL_KEY = 'product_purchase_pool_percentage';
+const AD_POOL_KEY = 'ad_purchase_pool_percentage';
+const DEFAULT_PRODUCT_POOL = 20;
+const DEFAULT_AD_POOL = 20;
+
 // ── Table bootstrap ───────────────────────────────────────────────────────────
 
 async function ensureTables() {
-    // Level settings table (shared with referralController)
     await pool.query(`
         CREATE TABLE IF NOT EXISTS referral_level_settings (
             id                       SERIAL PRIMARY KEY,
@@ -18,25 +22,83 @@ async function ensureTables() {
         )
     `);
 
-    // Commission pool settings table
+    await pool.query(`
+        ALTER TABLE referral_level_settings
+        ADD COLUMN IF NOT EXISTS ad_commission_percentage NUMERIC(8,2) NOT NULL DEFAULT 0
+    `);
+
+    await ensureCommissionSettingsTable();
+}
+async function ensureCommissionSettingsTable() {
     await pool.query(`
         CREATE TABLE IF NOT EXISTS referral_commission_settings (
-            id                              SERIAL PRIMARY KEY,
-            product_purchase_pool_percentage NUMERIC(8,2) NOT NULL DEFAULT 20,
-            ad_purchase_pool_percentage      NUMERIC(8,2) NOT NULL DEFAULT 20,
-            updated_at                      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+            setting_key VARCHAR(80) PRIMARY KEY,
+            setting_value NUMERIC(8,2) NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     `);
 
-    // Seed a single settings row if absent
     await pool.query(`
-        INSERT INTO referral_commission_settings
-            (product_purchase_pool_percentage, ad_purchase_pool_percentage)
-        SELECT 20, 20
-        WHERE NOT EXISTS (SELECT 1 FROM referral_commission_settings)
+        ALTER TABLE referral_commission_settings
+        ADD COLUMN IF NOT EXISTS setting_key VARCHAR(80),
+        ADD COLUMN IF NOT EXISTS setting_value NUMERIC(8,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    `);
+
+    await pool.query(`
+        DO $$
+        DECLARE
+            product_pool NUMERIC(8,2) := ${DEFAULT_PRODUCT_POOL};
+            ad_pool NUMERIC(8,2) := ${DEFAULT_AD_POOL};
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'referral_commission_settings'
+                  AND column_name = 'product_purchase_pool_percentage'
+            ) THEN
+                EXECUTE 'SELECT COALESCE(product_purchase_pool_percentage, $1), COALESCE(ad_purchase_pool_percentage, $2) FROM referral_commission_settings ORDER BY id ASC NULLS LAST LIMIT 1'
+                INTO product_pool, ad_pool
+                USING product_pool, ad_pool;
+            END IF;
+
+            INSERT INTO referral_commission_settings (setting_key, setting_value, updated_at)
+            VALUES ('${PRODUCT_POOL_KEY}', product_pool, CURRENT_TIMESTAMP)
+            ON CONFLICT (setting_key) DO NOTHING;
+
+            INSERT INTO referral_commission_settings (setting_key, setting_value, updated_at)
+            VALUES ('${AD_POOL_KEY}', ad_pool, CURRENT_TIMESTAMP)
+            ON CONFLICT (setting_key) DO NOTHING;
+        END $$;
     `);
 }
 
+async function readCommissionSettings() {
+    await ensureCommissionSettingsTable();
+    const { rows } = await pool.query(
+        `SELECT setting_key, setting_value
+         FROM referral_commission_settings
+         WHERE setting_key = ANY($1::text[])`,
+        [[PRODUCT_POOL_KEY, AD_POOL_KEY]]
+    );
+    const values = Object.fromEntries(rows.map(row => [row.setting_key, Number(row.setting_value || 0)]));
+    return {
+        product_purchase_pool_percentage: values[PRODUCT_POOL_KEY] ?? DEFAULT_PRODUCT_POOL,
+        ad_purchase_pool_percentage: values[AD_POOL_KEY] ?? DEFAULT_AD_POOL,
+        productPurchasePoolPercentage: values[PRODUCT_POOL_KEY] ?? DEFAULT_PRODUCT_POOL,
+        adPurchasePoolPercentage: values[AD_POOL_KEY] ?? DEFAULT_AD_POOL,
+    };
+}
+
+async function writeCommissionSetting(key, value) {
+    await pool.query(
+        `INSERT INTO referral_commission_settings (setting_key, setting_value, updated_at)
+         VALUES ($1, $2, CURRENT_TIMESTAMP)
+         ON CONFLICT (setting_key) DO UPDATE
+            SET setting_value = EXCLUDED.setting_value,
+                updated_at = CURRENT_TIMESTAMP`,
+        [key, value]
+    );
+}
 ensureTables().catch(err =>
     console.error('referralCommissionController init error:', err.message)
 );
@@ -156,8 +218,8 @@ const updateLevel = async (req, res) => {
 
 const deleteLevel = async (req, res) => {
     const levelNum = parseInt(req.params.level, 10);
-    if (levelNum === 0) {
-        return res.status(400).json({ success: false, message: 'Cannot delete the Googer level' });
+    if (levelNum === 0 || levelNum === 99) {
+        return res.status(400).json({ success: false, message: 'Cannot delete this fixed level' });
     }
     try {
         const { rows } = await pool.query(
@@ -177,34 +239,34 @@ const deleteLevel = async (req, res) => {
 
 const getCommissionSettings = async (req, res) => {
     try {
-        const { rows } = await pool.query(
-            'SELECT * FROM referral_commission_settings ORDER BY id ASC LIMIT 1'
-        );
-        return res.json({ success: true, data: rows[0] || { product_purchase_pool_percentage: 20, ad_purchase_pool_percentage: 20 } });
+        const data = await readCommissionSettings();
+        return res.json({ success: true, data, settings: data });
     } catch (err) {
         console.error('getCommissionSettings:', err.message);
         return res.status(500).json({ success: false, message: 'Failed to fetch commission settings' });
     }
 };
 
-// ── PUT /api/admin/customization/referral-commission-settings ────────────────
+// -- PUT /api/admin/customization/referral-commission-settings ────────────────
 
 const updateCommissionSettings = async (req, res) => {
-    const { productPurchasePoolPercentage, adPurchasePoolPercentage } = req.body;
+    const productPurchasePoolPercentage =
+        req.body.productPurchasePoolPercentage ?? req.body.product_purchase_pool_percentage;
+    const adPurchasePoolPercentage =
+        req.body.adPurchasePoolPercentage ?? req.body.ad_purchase_pool_percentage;
     if (productPurchasePoolPercentage == null && adPurchasePoolPercentage == null) {
         return res.status(400).json({ success: false, message: 'At least one field is required' });
     }
     try {
-        const { rows } = await pool.query(
-            `UPDATE referral_commission_settings
-             SET product_purchase_pool_percentage = COALESCE($1, product_purchase_pool_percentage),
-                 ad_purchase_pool_percentage      = COALESCE($2, ad_purchase_pool_percentage),
-                 updated_at                       = CURRENT_TIMESTAMP
-             WHERE id = (SELECT id FROM referral_commission_settings ORDER BY id ASC LIMIT 1)
-             RETURNING *`,
-            [productPurchasePoolPercentage ?? null, adPurchasePoolPercentage ?? null]
-        );
-        return res.json({ success: true, data: rows[0], message: 'Commission settings saved' });
+        await ensureCommissionSettingsTable();
+        if (productPurchasePoolPercentage != null) {
+            await writeCommissionSetting(PRODUCT_POOL_KEY, Number(productPurchasePoolPercentage) || 0);
+        }
+        if (adPurchasePoolPercentage != null) {
+            await writeCommissionSetting(AD_POOL_KEY, Number(adPurchasePoolPercentage) || 0);
+        }
+        const data = await readCommissionSettings();
+        return res.json({ success: true, data, settings: data, message: 'Commission settings saved' });
     } catch (err) {
         console.error('updateCommissionSettings:', err.message);
         return res.status(500).json({ success: false, message: 'Failed to save commission settings' });

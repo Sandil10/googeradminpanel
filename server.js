@@ -8,9 +8,18 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-const allowedOrigins = (process.env.CORS_ORIGIN || process.env.FRONTEND_URL || '')
-    .split(',')
-    .map((origin) => origin.trim())
+const configuredOrigins = [
+    process.env.CORS_ORIGIN,
+    process.env.FRONTEND_URL,
+    process.env.WEB_URL,
+    process.env.ADMIN_URL,
+    'https://appadmin.infranex.it.com',
+    'https://app.infranex.it.com',
+];
+
+const allowedOrigins = configuredOrigins
+    .flatMap((origin) => String(origin || '').split(','))
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 
 const devOrigins = [
@@ -18,7 +27,17 @@ const devOrigins = [
     'http://127.0.0.1:3000',
     'http://localhost:3001',
     'http://127.0.0.1:3001',
+    'http://localhost:6001',
+    'http://127.0.0.1:6001',
 ];
+
+const isAllowedOrigin = (origin) => {
+    if (process.env.NODE_ENV !== 'production') return true;
+    if (allowedOrigins.includes(origin)) return true;
+    if (/^https?:\/\/([a-z0-9-]+\.)*infranex\.it\.com(?::\d+)?$/i.test(origin)) return true;
+    if (devOrigins.includes(origin)) return true;
+    return false;
+};
 
 app.use(cors({
     origin(origin, callback) {
@@ -26,15 +45,13 @@ app.use(cors({
             return callback(null, true);
         }
 
-        if (
-            allowedOrigins.includes(origin) ||
-            (process.env.NODE_ENV !== 'production' && devOrigins.includes(origin)) ||
-            (process.env.NODE_ENV !== 'production' && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i.test(origin)) ||
-            (process.env.NODE_ENV !== 'production' && /^https:\/\/[a-z0-9-]+\.ngrok-free\.app$/i.test(origin))
-        ) {
+        const normalizedOrigin = origin.replace(/\/+$/, '');
+
+        if (isAllowedOrigin(normalizedOrigin)) {
             return callback(null, true);
         }
 
+        console.warn(`[CORS] Blocked origin: ${normalizedOrigin}`);
         return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,

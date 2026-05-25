@@ -143,9 +143,9 @@ export default function SubscriptionClient() {
 
             {/* Toast */}
             {toast && (
-                <div className={`fixed top-6 right-6 z-[100] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium animate-in slide-in-from-top-2 duration-300 ${toast.type === 'success' ? 'bg-green-500/20 border border-green-500/30 text-green-300' : 'bg-red-500/20 border border-red-500/30 text-red-300'}`}>
-                    <IonIcon name={toast.type === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'} className="text-xl" />
-                    {toast.msg}
+                <div className={`fixed left-1/2 top-4 z-[100] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200 ${toast.type === 'success' ? 'bg-green-950/90 border-green-500/30 text-green-200' : 'bg-red-950/90 border-red-500/30 text-red-200'}`}>
+                    <IonIcon name={toast.type === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'} className="text-sm shrink-0" />
+                    <span className="truncate">{toast.msg}</span>
                 </div>
             )}
 
@@ -161,7 +161,7 @@ export default function SubscriptionClient() {
                 <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-8 text-center">
                     <IonIcon name="alert-circle-outline" className="text-4xl text-red-400 mb-2" />
                     <p className="text-red-400 font-semibold">{error}</p>
-                    <button onClick={load} className="mt-3 text-sm text-red-300 underline hover:text-white">Retry</button>
+                    <button onClick={() => load()} className="mt-3 text-sm text-red-300 underline hover:text-white">Retry</button>
                 </div>
             )}
 

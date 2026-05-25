@@ -427,7 +427,13 @@ export default function ReferralsClient() {
         setLoadingPool(true);
         try {
             const res = await adminService.fetchRefCommissionSettings();
-            setPoolSettings(res.data || res);
+            const source = res.data || res.settings || res;
+            setPoolSettings({
+                product_purchase_pool_percentage:
+                    source.product_purchase_pool_percentage ?? source.productPurchasePoolPercentage ?? 20,
+                ad_purchase_pool_percentage:
+                    source.ad_purchase_pool_percentage ?? source.adPurchasePoolPercentage ?? 20,
+            });
         } catch { /* silent */ }
         finally { setLoadingPool(false); }
     }, []);
@@ -436,14 +442,36 @@ export default function ReferralsClient() {
         if (!silent) setLoadingLevels(true);
         try {
             const res = await adminService.fetchRefLevels();
-            let data: RefLevel[] = res.data || [];
-            // Ensure Googer (level 0) is always present at the top
+            let data: RefLevel[] = res.data || res.levels || [];
+            // Ensure fixed system levels are always present at the top.
             if (!data.find(l => l.level === 0)) {
                 data = [
                     { level: 0, name: 'Googer', commission_percentage: 0, ad_commission_percentage: 0, is_active: true, sort_order: 0 },
                     ...data,
                 ];
             }
+            if (!data.find(l => l.level === 99)) {
+                const rootIndex = data.findIndex(l => l.level === 0);
+                const buyerLevel = { level: 99, name: 'Buyer', commission_percentage: 0, ad_commission_percentage: 0, is_active: true, sort_order: 1, _isNew: true };
+                data = rootIndex >= 0
+                    ? [...data.slice(0, rootIndex + 1), buyerLevel, ...data.slice(rootIndex + 1)]
+                    : [buyerLevel, ...data];
+            }
+            const defaultLevels = [
+                { level: 1, name: 'Direct', commission_percentage: 40, ad_commission_percentage: 0, is_active: true, sort_order: 2, _isNew: true },
+                { level: 2, name: 'Team', commission_percentage: 20, ad_commission_percentage: 0, is_active: true, sort_order: 3, _isNew: true },
+                { level: 3, name: 'Network', commission_percentage: 10, ad_commission_percentage: 0, is_active: true, sort_order: 4, _isNew: true },
+                { level: 4, name: 'Extended', commission_percentage: 5, ad_commission_percentage: 0, is_active: true, sort_order: 5, _isNew: true },
+                { level: 5, name: 'Global', commission_percentage: 3, ad_commission_percentage: 0, is_active: true, sort_order: 6, _isNew: true },
+                { level: 6, name: 'Level 6', commission_percentage: 2, ad_commission_percentage: 0, is_active: true, sort_order: 7, _isNew: true },
+            ];
+            for (const defaultLevel of defaultLevels) {
+                if (!data.find(l => l.level === defaultLevel.level)) data.push(defaultLevel);
+            }
+            data = data.sort((a, b) => {
+                const rank = (level: number) => level === 0 ? 0 : level === 99 ? 1 : level + 1;
+                return rank(a.level) - rank(b.level);
+            });
             setLevels(data);
             setEditedLevels(data.map(l => ({ ...l })));
         } catch { /* silent */ }
@@ -547,9 +575,16 @@ export default function ReferralsClient() {
     const handleSavePool = async () => {
         setSavingPool(true);
         try {
-            await adminService.updateRefCommissionSettings({
+            const res = await adminService.updateRefCommissionSettings({
                 productPurchasePoolPercentage: Number(poolSettings.product_purchase_pool_percentage) || 0,
                 adPurchasePoolPercentage:      Number(poolSettings.ad_purchase_pool_percentage) || 0,
+            });
+            const source = res.data || res.settings || res;
+            setPoolSettings({
+                product_purchase_pool_percentage:
+                    source.product_purchase_pool_percentage ?? source.productPurchasePoolPercentage ?? (Number(poolSettings.product_purchase_pool_percentage) || 0),
+                ad_purchase_pool_percentage:
+                    source.ad_purchase_pool_percentage ?? source.adPurchasePoolPercentage ?? (Number(poolSettings.ad_purchase_pool_percentage) || 0),
             });
             showToast('success', 'Commission pool settings saved');
         } catch (err: any) {
@@ -565,7 +600,8 @@ export default function ReferralsClient() {
         setEditedLevels(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l));
 
     const addLocalLevel = () => {
-        const maxLvl  = editedLevels.reduce((m, l) => Math.max(m, l.level), 0);
+        const normalLevels = editedLevels.filter(l => l.level > 0 && l.level !== 99);
+        const maxLvl  = normalLevels.reduce((m, l) => Math.max(m, l.level), 0);
         const maxSort = editedLevels.reduce((m, l) => Math.max(m, l.sort_order), 0);
         const n = maxLvl + 1;
         setEditedLevels(prev => [...prev, {
@@ -579,22 +615,13 @@ export default function ReferralsClient() {
         const rowKey = lvl._isNew ? `new-${idx}` : lvl.level;
         setSavingIds(s => new Set(s).add(rowKey));
         try {
-            if (lvl._isNew) {
-                await adminService.addRefLevel({
-                    level: lvl.level, name: String(lvl.name).trim(),
-                    commission_percentage: Number(lvl.commission_percentage) || 0,
-                    ad_commission_percentage: Number(lvl.ad_commission_percentage) || 0,
-                    is_active: lvl.is_active, sort_order: lvl.sort_order,
-                });
-            } else {
-                await adminService.updateRefLevel(lvl.level, {
-                    name: String(lvl.name).trim(),
-                    commission_percentage: Number(lvl.commission_percentage) || 0,
-                    ad_commission_percentage: Number(lvl.ad_commission_percentage) || 0,
-                    is_active: lvl.is_active, sort_order: lvl.sort_order,
-                });
-            }
-            showToast('success', `Level ${lvl.level} saved`);
+            await adminService.bulkSaveRefLevels([{
+                level: lvl.level, name: String(lvl.name).trim(),
+                commission_percentage: Number(lvl.commission_percentage) || 0,
+                ad_commission_percentage: Number(lvl.ad_commission_percentage) || 0,
+                is_active: lvl.is_active, sort_order: lvl.sort_order,
+            }]);
+            showToast('success', lvl.level === 99 ? 'Buyer level saved' : `Level ${lvl.level} saved`);
             loadLevels(true);
         } catch (err: any) {
             showToast('error', err.message || 'Failed to save');
@@ -628,7 +655,7 @@ export default function ReferralsClient() {
 
     const handleDeleteLevel = async (lvl: RefLevel, idx: number) => {
         if (lvl._isNew) { setEditedLevels(prev => prev.filter((_, i) => i !== idx)); return; }
-        if (lvl.level === 0) { showToast('error', 'Cannot delete the Googer level'); return; }
+        if (lvl.level === 0 || lvl.level === 99) { showToast('error', 'Cannot delete this fixed level'); return; }
         setDeletingLevel(lvl.level);
         try {
             await adminService.deleteRefLevel(lvl.level);
@@ -675,9 +702,9 @@ export default function ReferralsClient() {
 
             {/* Toast */}
             {toast && (
-                <div className={`fixed top-6 right-6 z-[100] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium animate-in slide-in-from-top-2 duration-300 ${toast.type === 'success' ? 'bg-green-500/20 border border-green-500/30 text-green-300' : 'bg-red-500/20 border border-red-500/30 text-red-300'}`}>
-                    <IonIcon name={toast.type === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'} className="text-xl shrink-0" />
-                    {toast.msg}
+                <div className={`fixed left-1/2 top-4 z-[100] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200 ${toast.type === 'success' ? 'bg-green-950/90 border-green-500/30 text-green-200' : 'bg-red-950/90 border-red-500/30 text-red-200'}`}>
+                    <IonIcon name={toast.type === 'success' ? 'checkmark-circle-outline' : 'alert-circle-outline'} className="text-sm shrink-0" />
+                    <span className="truncate">{toast.msg}</span>
                 </div>
             )}
 
@@ -724,73 +751,6 @@ export default function ReferralsClient() {
             {tab === 'commission' && (
                 <div className="space-y-6">
 
-                    {/* Section A — Commission Pool */}
-                    <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl overflow-hidden">
-                        <div className="flex items-center gap-3 px-6 py-4 border-b border-[#1a1a1a]">
-                            <div className="w-9 h-9 rounded-xl bg-green-500/10 flex items-center justify-center shrink-0">
-                                <IonIcon name="pie-chart-outline" className="text-lg text-green-400" />
-                            </div>
-                            <div>
-                                <h2 className="text-sm font-bold text-white">Section A — Commission Pool</h2>
-                                <p className="text-xs text-gray-500">Percentage of each transaction that enters the referral pool for distribution</p>
-                            </div>
-                        </div>
-
-                        {loadingPool
-                            ? <div className="flex justify-center py-10"><Spinner /></div>
-                            : (
-                                <div className="p-6 space-y-4">
-                                    <div className="grid sm:grid-cols-2 gap-4">
-                                        <label className="block">
-                                            <span className="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">Product Purchase Pool %</span>
-                                            <div className="relative">
-                                                <input type="number" min="0" max="100" step="0.1"
-                                                    value={poolSettings.product_purchase_pool_percentage}
-                                                    onChange={e => setPoolSettings(p => ({ ...p, product_purchase_pool_percentage: e.target.value }))}
-                                                    className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-4 py-3 pr-10 text-sm focus:outline-none focus:border-white/30" />
-                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-bold">%</span>
-                                            </div>
-                                            <p className="text-[11px] text-gray-600 mt-1.5">
-                                                e.g. R100 × {poolSettings.product_purchase_pool_percentage}% = R{(100 * Number(poolSettings.product_purchase_pool_percentage) / 100).toFixed(0)} pool
-                                            </p>
-                                        </label>
-                                        <label className="block">
-                                            <span className="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">Ad Purchase Pool %</span>
-                                            <div className="relative">
-                                                <input type="number" min="0" max="100" step="0.1"
-                                                    value={poolSettings.ad_purchase_pool_percentage}
-                                                    onChange={e => setPoolSettings(p => ({ ...p, ad_purchase_pool_percentage: e.target.value }))}
-                                                    className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-4 py-3 pr-10 text-sm focus:outline-none focus:border-white/30" />
-                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-bold">%</span>
-                                            </div>
-                                            <p className="text-[11px] text-gray-600 mt-1.5">
-                                                e.g. R100 × {poolSettings.ad_purchase_pool_percentage}% = R{(100 * Number(poolSettings.ad_purchase_pool_percentage) / 100).toFixed(0)} pool
-                                            </p>
-                                        </label>
-                                    </div>
-
-                                    <div className="flex items-start gap-2.5 bg-blue-500/5 border border-blue-500/15 rounded-xl px-4 py-3">
-                                        <IonIcon name="information-circle-outline" className="text-blue-400 text-base shrink-0 mt-0.5" />
-                                        <p className="text-[11px] text-gray-500 leading-relaxed">
-                                            <span className="text-blue-400 font-semibold">How commission flows:</span>{' '}
-                                            When a buyer makes a purchase, commission goes to the buyer&apos;s <strong className="text-white">upline</strong> — not the buyer.
-                                            Level 1 = buyer&apos;s direct sponsor. Level 2 = sponsor&apos;s sponsor. Inactive levels receive no commission.
-                                        </p>
-                                    </div>
-
-                                    <div className="flex justify-end">
-                                        <button onClick={handleSavePool} disabled={savingPool}
-                                            className="flex items-center gap-2 bg-white text-black px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-gray-100 transition-colors disabled:opacity-50">
-                                            {savingPool ? <Spinner size="sm" /> : <IonIcon name="save-outline" className="text-base" />}
-                                            Save Pool Settings
-                                        </button>
-                                    </div>
-                                </div>
-                            )
-                        }
-                    </div>
-
-                    {/* Section B — Level Distribution */}
                     <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl overflow-hidden">
                         <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-[#1a1a1a]">
                             <div className="flex items-center gap-3">
@@ -798,8 +758,8 @@ export default function ReferralsClient() {
                                     <IonIcon name="layers-outline" className="text-lg text-purple-400" />
                                 </div>
                                 <div>
-                                    <h2 className="text-sm font-bold text-white">Section B — Level Distribution</h2>
-                                    <p className="text-xs text-gray-500">Commission % each upline level receives from the pool</p>
+                                    <h2 className="text-sm font-bold text-white">Commission Control</h2>
+                                    <p className="text-xs text-gray-500">Customize Googer, Buyer, and referral level commissions</p>
                                 </div>
                             </div>
                             <div className="flex gap-2 shrink-0">
@@ -820,17 +780,23 @@ export default function ReferralsClient() {
                                 <>
                                     <div className="grid grid-cols-[2.5rem_1fr_8rem_8rem_6rem_3rem_3rem] gap-3 px-6 py-3 border-b border-[#1a1a1a] text-[10px] font-bold text-gray-600 uppercase tracking-widest">
                                         <span>Lvl</span><span>Name</span>
-                                        <span>Pro Commission</span><span>Ad Commission</span>
+                                        <span>Pro / Wallet Commission</span><span>Ad Commission</span>
                                         <span>Status</span><span></span><span></span>
                                     </div>
 
                                     {editedLevels.length === 0 && (
-                                        <p className="py-10 text-center text-gray-600 text-sm">No levels — click Add Level</p>
+                                        <p className="py-10 text-center text-gray-600 text-sm">No levels - click Add Level</p>
                                     )}
 
-                                    {editedLevels.map((lvl, idx) => {
+                                    {[
+                                        ...editedLevels.filter(lvl => lvl.level === 0),
+                                        ...editedLevels.filter(lvl => lvl.level === 99),
+                                        ...editedLevels.filter(lvl => lvl.level > 0 && lvl.level !== 99),
+                                    ].map((lvl) => {
+                                        const idx        = editedLevels.findIndex(l => l.level === lvl.level && l._isNew === lvl._isNew);
                                         const isGooger   = lvl.level === 0;
-                                        const c          = lc(lvl.level);
+                                        const isBuyer    = lvl.level === 99;
+                                        const c          = isBuyer ? { bg: 'bg-blue-500/15', border: 'border-blue-500/30', text: 'text-blue-400' } : lc(lvl.level);
                                         const rowKey     = lvl._isNew ? `new-${idx}` : lvl.level;
                                         const isSaving   = savingIds.has(rowKey);
                                         const isDeleting = deletingLevel === lvl.level;
@@ -838,12 +804,16 @@ export default function ReferralsClient() {
                                         return (
                                             <div key={rowKey}
                                                 className={`grid grid-cols-[2.5rem_1fr_8rem_8rem_6rem_3rem_3rem] gap-3 px-6 py-3 border-b last:border-0 items-center
-                                                    ${isGooger ? 'border-yellow-500/20 bg-yellow-500/[0.03]' : 'border-[#111]'}
+                                                    ${isGooger ? 'border-yellow-500/20 bg-yellow-500/[0.03]' : isBuyer ? 'border-blue-500/20 bg-blue-500/[0.03]' : 'border-[#111]'}
                                                     ${lvl._isNew ? 'bg-white/[0.02]' : ''}`}>
 
                                                 {isGooger ? (
                                                     <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-yellow-500/15 border border-yellow-500/30">
                                                         <IonIcon name="star-outline" className="text-yellow-400 text-xs" />
+                                                    </span>
+                                                ) : isBuyer ? (
+                                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-500/15 border border-blue-500/30">
+                                                        <IonIcon name="cart-outline" className="text-blue-400 text-xs" />
                                                     </span>
                                                 ) : (
                                                     <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border ${c.bg} ${c.border} ${c.text}`}>
@@ -878,7 +848,7 @@ export default function ReferralsClient() {
                                                     {isSaving ? <Spinner size="sm" /> : <IonIcon name="checkmark-outline" className="text-sm" />}
                                                 </button>
 
-                                                {isGooger ? (
+                                                {isGooger || isBuyer ? (
                                                     <span className="w-7 h-7 flex items-center justify-center">
                                                         <IonIcon name="lock-closed-outline" className="text-xs text-gray-700" />
                                                     </span>
@@ -905,140 +875,6 @@ export default function ReferralsClient() {
                                 </>
                             )
                         }
-                    </div>
-
-                    {/* Section C — Commission Preview Tool */}
-                    <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl overflow-hidden">
-                        <div className="flex items-center gap-3 px-6 py-4 border-b border-[#1a1a1a]">
-                            <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
-                                <IonIcon name="calculator-outline" className="text-lg text-amber-400" />
-                            </div>
-                            <div>
-                                <h2 className="text-sm font-bold text-white">Section C — Commission Preview</h2>
-                                <p className="text-xs text-gray-500">Simulate how commission would be distributed for a hypothetical purchase — no actual payment</p>
-                            </div>
-                        </div>
-
-                        <div className="p-6 space-y-4">
-                            <div className="grid sm:grid-cols-3 gap-3">
-                                <label className="block">
-                                    <span className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-widest">Buyer User ID</span>
-                                    <input type="number" placeholder="e.g. 42"
-                                        value={previewBuyerId}
-                                        onChange={e => { setPreviewBuyerId(e.target.value); setPreviewError(''); setPreviewResult(null); }}
-                                        className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-white/30" />
-                                </label>
-                                <label className="block">
-                                    <span className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-widest">Transaction Type</span>
-                                    <select value={previewType}
-                                        onChange={e => { setPreviewType(e.target.value as 'product' | 'ad'); setPreviewResult(null); }}
-                                        className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-white/30">
-                                        <option value="product">Product Purchase</option>
-                                        <option value="ad">Ad Purchase</option>
-                                    </select>
-                                </label>
-                                <label className="block">
-                                    <span className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-widest">Amount (R)</span>
-                                    <input type="number" min="0" step="0.01" placeholder="e.g. 100"
-                                        value={previewAmount}
-                                        onChange={e => { setPreviewAmount(e.target.value); setPreviewError(''); setPreviewResult(null); }}
-                                        className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-white/30" />
-                                </label>
-                            </div>
-
-                            {previewError && (
-                                <p className="text-xs text-red-400 flex items-center gap-1.5">
-                                    <IonIcon name="alert-circle-outline" className="text-sm shrink-0" />{previewError}
-                                </p>
-                            )}
-
-                            <button onClick={handlePreview} disabled={previewLoading}
-                                className="flex items-center gap-2 bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 px-5 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
-                                {previewLoading ? <Spinner size="sm" /> : <IonIcon name="flash-outline" className="text-sm" />}
-                                Preview Commission
-                            </button>
-
-                            {previewResult && (
-                                <div className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-xl overflow-hidden">
-                                    {/* Summary */}
-                                    <div className="px-5 py-4 border-b border-[#1a1a1a]">
-                                        <div className="flex items-center gap-3 mb-3">
-                                            <Avatar user={previewResult.buyer} size={9} />
-                                            <div>
-                                                <p className="text-sm font-bold text-white">{previewResult.buyer.full_name || previewResult.buyer.username}</p>
-                                                <p className="text-[11px] text-gray-500">@{previewResult.buyer.username} · Buyer</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-wrap gap-4 text-[11px]">
-                                            <span className="text-gray-500">Purchase: <span className="text-white font-semibold">R{Number(previewResult.amount).toFixed(2)}</span></span>
-                                            <span className="text-gray-500">Pool: <span className="text-amber-400 font-semibold">{previewResult.pool_percentage}%</span></span>
-                                            <span className="text-gray-500">Pool Amount: <span className="text-green-400 font-semibold">R{Number(previewResult.pool_amount).toFixed(2)}</span></span>
-                                            <span className={`capitalize font-semibold ${previewResult.transaction_type === 'ad' ? 'text-purple-400' : 'text-blue-400'}`}>
-                                                {previewResult.transaction_type === 'ad' ? 'Ad' : 'Product'} Purchase
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Distribution */}
-                                    {previewResult.distribution.length === 0 ? (
-                                        <p className="px-5 py-4 text-sm text-gray-600 italic">No commission recipients found.</p>
-                                    ) : (
-                                        <div className="divide-y divide-[#111]">
-                                            {previewResult.distribution.map((step, i) => {
-                                                const isRoot = step.is_root || step.depth === 0;
-                                                const c = isRoot
-                                                    ? { text: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20' }
-                                                    : lc(step.depth);
-                                                return (
-                                                    <div key={i} className={`flex items-center gap-3 px-5 py-3 ${isRoot ? 'bg-yellow-500/[0.03]' : ''}`}>
-                                                        {/* Level badge */}
-                                                        {isRoot ? (
-                                                            <span className="w-14 flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-yellow-400">
-                                                                <IonIcon name="star-outline" className="text-xs shrink-0" />ROOT
-                                                            </span>
-                                                        ) : (
-                                                            <span className={`w-14 text-[10px] font-black uppercase tracking-widest ${c.text}`}>
-                                                                Level {step.depth}
-                                                            </span>
-                                                        )}
-
-                                                        {/* Avatar / icon */}
-                                                        {isRoot ? (
-                                                            <span className="w-7 h-7 flex items-center justify-center rounded-full bg-yellow-500/15 border border-yellow-500/30 shrink-0">
-                                                                <IonIcon name="star-outline" className="text-yellow-400 text-xs" />
-                                                            </span>
-                                                        ) : (
-                                                            step.user && <Avatar user={step.user} size={7} />
-                                                        )}
-
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className={`text-xs font-semibold truncate ${isRoot ? 'text-yellow-400' : 'text-white'}`}>
-                                                                {isRoot ? (step.level_name || 'Googer') : (step.user?.full_name || step.user?.username || '—')}
-                                                            </p>
-                                                            <p className="text-[10px] text-gray-600">
-                                                                {isRoot ? 'Root Level — receives from every purchase' : step.level_name}
-                                                            </p>
-                                                        </div>
-
-                                                        <div className="text-right shrink-0">
-                                                            <p className="text-xs text-gray-400">{step.commission_percentage}% of pool</p>
-                                                            <p className="text-sm font-black text-green-400">R{Number(step.amount_earned).toFixed(2)}</p>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-
-                                    <div className="px-5 py-3 border-t border-[#1a1a1a]">
-                                        <p className="text-[10px] text-gray-700 italic flex items-center gap-1">
-                                            <IonIcon name="eye-outline" className="text-xs" />
-                                            Preview only — no actual payment processed
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
                     </div>
                 </div>
             )}

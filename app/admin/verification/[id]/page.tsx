@@ -254,11 +254,11 @@ export default function VerificationDetailPage({ params }: { params: Promise<{ i
     <div className="space-y-5">
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-5 right-5 z-[300] flex items-center gap-2.5 px-4 py-3 rounded-2xl border shadow-2xl text-xs font-bold animate-in fade-in slide-in-from-top-2 duration-200 ${
-          toast.ok ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+        <div className={`fixed left-1/2 top-4 z-[300] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200 ${
+          toast.ok ? "bg-emerald-950/90 border-emerald-500/30 text-emerald-200" : "bg-rose-950/90 border-rose-500/30 text-rose-200"
         }`}>
-          <IonIcon name={toast.ok ? "checkmark-circle-outline" : "alert-circle-outline"} className="text-sm" />
-          {toast.msg}
+          <IonIcon name={toast.ok ? "checkmark-circle-outline" : "alert-circle-outline"} className="text-sm shrink-0" />
+          <span className="truncate">{toast.msg}</span>
         </div>
       )}
 
