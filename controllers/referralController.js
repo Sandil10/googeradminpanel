@@ -281,10 +281,10 @@ const getStats = async (req, res) => {
                 [], [{ count: 0 }]
             ),
             safeQuery(
-                `SELECT COALESCE(SUM(
-                    CASE WHEN is_active THEN commission_percentage ELSE 0 END
-                 ), 0)::numeric AS total
-                 FROM referral_level_settings`,
+                `SELECT COALESCE(SUM(amount), 0)::numeric AS total
+                 FROM referral_commission_payouts
+                 WHERE level > 0
+                   AND level <> 99`,
                 [], [{ total: 0 }]
             ),
             safeQuery(
