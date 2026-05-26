@@ -674,7 +674,11 @@ export default function ReferralsClient() {
     // ── Derived mapping stats for Googer Root card ────────────────────────────
 
     const totalDirectUsers  = mapping.find(l => l.level === 1)?.users.length ?? 0;
-    const totalNetworkUsers = mapping.reduce((sum, l) => l.level > 0 ? sum + l.users.length : sum, 0);
+    const totalNetworkUsers = mapping.reduce((sum, l) => (l.level > 0 && l.level !== 99) ? sum + l.users.length : sum, 0);
+    const totalConfiguredCommission = levels.reduce((sum, level) => {
+        if (!level.is_active) return sum;
+        return sum + (Number(level.commission_percentage) || 0);
+    }, 0);
 
     // ── Tabs ──────────────────────────────────────────────────────────────────
 
@@ -731,7 +735,7 @@ export default function ReferralsClient() {
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
                     <StatCard icon="people-outline"      label="Total Users"         value={fmtN(stats.total_users)}         color="bg-blue-500/10 text-blue-400" />
                     <StatCard icon="git-network-outline" label="Total Referrals"     value={fmtN(stats.total_referrals)}     color="bg-purple-500/10 text-purple-400" />
-                    <StatCard icon="cash-outline"        label="Total Commission"    value={fmtG(stats.total_commission)}    color="bg-green-500/10 text-green-400" />
+                    <StatCard icon="cash-outline"        label="Total Commission"    value={fmtG(totalConfiguredCommission || stats.total_commission)}    color="bg-green-500/10 text-green-400" />
                     <StatCard icon="time-outline"        label="Pending Withdrawals" value={fmtN(stats.pending_withdrawals)} color="bg-amber-500/10 text-amber-400" />
                 </div>
             )}
@@ -960,7 +964,7 @@ export default function ReferralsClient() {
                                     <p className="text-gray-600 text-sm mt-1">Referral relationships appear here once users start referring each other.</p>
                                 </div>
                             )
-                            : mapping.filter(l => l.level > 0).map(lvl => {
+                            : mapping.filter(l => l.level > 0 && l.level !== 99).map(lvl => {
                                 const c    = lc(lvl.level);
                                 const open = !collapsed.has(lvl.level);
                                 return (

@@ -281,7 +281,10 @@ const getStats = async (req, res) => {
                 [], [{ count: 0 }]
             ),
             safeQuery(
-                `SELECT COALESCE(SUM(amount), 0)::numeric AS total FROM wallet`,
+                `SELECT COALESCE(SUM(
+                    CASE WHEN is_active THEN commission_percentage ELSE 0 END
+                 ), 0)::numeric AS total
+                 FROM referral_level_settings`,
                 [], [{ total: 0 }]
             ),
             safeQuery(
@@ -321,14 +324,68 @@ const getMapping = async (req, res) => {
             'SELECT id, level, name FROM referral_level_settings ORDER BY sort_order ASC, level ASC'
         );
 
-        // Use rr.level directly — pre-computed by the user-side referral engine
+        // Compute display depth live so stale stored rr.level values do not hide users.
         const mappingRows = await safeQuery(`
+            WITH RECURSIVE referral_tree AS (
+                SELECT
+                    rr.user_id,
+                    rr.referred_by,
+                    rr.referral_code_used,
+                    rr.created_at,
+                    1 AS depth
+                FROM referral_relationships rr
+                WHERE rr.referred_by NOT IN (
+                    SELECT DISTINCT user_id FROM referral_relationships
+                )
+                UNION ALL
+                SELECT
+                    child.user_id,
+                    child.referred_by,
+                    child.referral_code_used,
+                    child.created_at,
+                    parent.depth + 1
+                FROM referral_relationships child
+                JOIN referral_tree parent ON parent.user_id = child.referred_by
+                WHERE parent.depth < 20
+            ),
+            shallowest_tree AS (
+                SELECT DISTINCT ON (user_id)
+                    user_id,
+                    referred_by,
+                    referral_code_used,
+                    created_at,
+                    depth
+                FROM referral_tree
+                ORDER BY user_id, depth ASC
+            ),
+            display_tree AS (
+                SELECT
+                    user_id,
+                    referred_by,
+                    referral_code_used,
+                    created_at,
+                    depth
+                FROM shallowest_tree
+                UNION ALL
+                SELECT
+                    rr.user_id,
+                    rr.referred_by,
+                    rr.referral_code_used,
+                    rr.created_at,
+                    COALESCE(NULLIF(rr.level, 0), 1) AS depth
+                FROM referral_relationships rr
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM shallowest_tree st
+                    WHERE st.user_id = rr.user_id
+                )
+            )
             SELECT
-                rr.user_id,
-                rr.referred_by,
-                rr.level          AS depth,
-                rr.referral_code_used,
-                rr.created_at     AS referral_date,
+                st.user_id,
+                st.referred_by,
+                st.depth,
+                st.referral_code_used,
+                st.created_at     AS referral_date,
                 u.id,
                 u.username,
                 u.full_name,
@@ -338,16 +395,16 @@ const getMapping = async (req, res) => {
                 COALESCE(cp.total_commission, 0)::numeric AS total_commission,
                 ref.username      AS referred_by_username,
                 ref.full_name     AS referred_by_full_name
-            FROM referral_relationships rr
-            JOIN users u   ON u.id = rr.user_id
-            LEFT JOIN users ref ON ref.id = rr.referred_by
+            FROM display_tree st
+            JOIN users u   ON u.id = st.user_id
+            LEFT JOIN users ref ON ref.id = st.referred_by
             LEFT JOIN (
                 SELECT earner_id, SUM(amount) AS total_commission
                 FROM referral_commission_payouts
                 GROUP BY earner_id
             ) cp ON cp.earner_id = u.id
             WHERE u.marked_for_deletion_at IS NULL
-            ORDER BY rr.level ASC, u.full_name ASC
+            ORDER BY st.depth ASC, u.full_name ASC
         `, [], []);
 
         const depthMap = {};
