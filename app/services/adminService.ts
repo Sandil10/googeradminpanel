@@ -482,6 +482,7 @@ export const adminService = {
         googerCommissionAmount: number;
         advertiserChargeAmount: number;
         requiredWatchSeconds: number;
+        resellGoogerCommissionPercentage?: number;
         allowMismatch?: boolean;
     }) => {
         const response = await fetch(`${API_URL}/admin/customization/ad-coin-rewards`, {

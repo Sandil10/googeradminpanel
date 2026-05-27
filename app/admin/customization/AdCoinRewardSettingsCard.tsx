@@ -9,6 +9,7 @@ type InputValues = {
     googerCommissionAmount: string;
     advertiserChargeAmount: string;
     requiredWatchSeconds: string;
+    resellGoogerCommissionPercentage: string;
 };
 
 const DEFAULTS: InputValues = {
@@ -16,6 +17,7 @@ const DEFAULTS: InputValues = {
     googerCommissionAmount: "0.25",
     advertiserChargeAmount: "1.25",
     requiredWatchSeconds: "15",
+    resellGoogerCommissionPercentage: "10",
 };
 
 const toNum = (s: string) => {
@@ -41,6 +43,7 @@ export default function AdCoinRewardSettingsCard() {
                     googerCommissionAmount: String(s.googerCommissionAmount ?? s.googer_commission_amount ?? DEFAULTS.googerCommissionAmount),
                     advertiserChargeAmount: String(s.advertiserChargeAmount ?? s.advertiser_charge_amount ?? DEFAULTS.advertiserChargeAmount),
                     requiredWatchSeconds: String(s.requiredWatchSeconds ?? s.required_watch_seconds ?? DEFAULTS.requiredWatchSeconds),
+                    resellGoogerCommissionPercentage: String(s.resellGoogerCommissionPercentage ?? s.resell_googer_commission_percentage ?? DEFAULTS.resellGoogerCommissionPercentage),
                 });
             }
             setMessage(null);
@@ -60,12 +63,14 @@ export default function AdCoinRewardSettingsCard() {
         const googerCommissionAmount = toNum(inputs.googerCommissionAmount);
         const advertiserChargeAmount = toNum(inputs.advertiserChargeAmount);
         const requiredWatchSeconds = Math.max(0, Math.trunc(toNum(inputs.requiredWatchSeconds)));
+        const resellGoogerCommissionPercentage = toNum(inputs.resellGoogerCommissionPercentage);
 
         return {
             userRewardAmount,
             googerCommissionAmount,
             advertiserChargeAmount,
             requiredWatchSeconds,
+            resellGoogerCommissionPercentage,
         };
     };
 
@@ -76,15 +81,20 @@ export default function AdCoinRewardSettingsCard() {
                 googerCommissionAmount: String(settings.googerCommissionAmount ?? settings.googer_commission_amount ?? fallback.googerCommissionAmount),
                 advertiserChargeAmount: String(settings.advertiserChargeAmount ?? settings.advertiser_charge_amount ?? fallback.advertiserChargeAmount),
                 requiredWatchSeconds: String(settings.requiredWatchSeconds ?? settings.required_watch_seconds ?? fallback.requiredWatchSeconds),
+                resellGoogerCommissionPercentage: String(settings.resellGoogerCommissionPercentage ?? settings.resell_googer_commission_percentage ?? fallback.resellGoogerCommissionPercentage),
             });
         }
     };
 
     const handleSaveRewards = async () => {
-        const { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds } = getParsedValues();
+        const { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds, resellGoogerCommissionPercentage } = getParsedValues();
 
         if (userRewardAmount < 0 || googerCommissionAmount < 0 || advertiserChargeAmount < 0) {
             setMessage("Reward values cannot be negative");
+            return;
+        }
+        if (resellGoogerCommissionPercentage < 0 || resellGoogerCommissionPercentage > 100) {
+            setMessage("Resell Googer commission must be between 0 and 100");
             return;
         }
 
@@ -105,10 +115,11 @@ export default function AdCoinRewardSettingsCard() {
                 googerCommissionAmount,
                 advertiserChargeAmount,
                 requiredWatchSeconds,
+                resellGoogerCommissionPercentage,
                 allowMismatch,
             });
             const s = response?.settings || response?.data || response?.rewardSettings;
-            syncInputsFromSettings(s, { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds });
+            syncInputsFromSettings(s, { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds, resellGoogerCommissionPercentage });
             setMessage("Ad coin reward amounts saved");
         } catch (error: any) {
             setMessage(error.message || "Failed to save ad coin reward settings");
@@ -118,7 +129,7 @@ export default function AdCoinRewardSettingsCard() {
     };
 
     const handleSaveWatchTime = async () => {
-        const { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds } = getParsedValues();
+        const { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds, resellGoogerCommissionPercentage } = getParsedValues();
 
         try {
             setSavingWatchTime(true);
@@ -127,10 +138,11 @@ export default function AdCoinRewardSettingsCard() {
                 googerCommissionAmount,
                 advertiserChargeAmount,
                 requiredWatchSeconds,
+                resellGoogerCommissionPercentage,
                 allowMismatch: true,
             });
             const s = response?.settings || response?.data || response?.rewardSettings;
-            syncInputsFromSettings(s, { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds });
+            syncInputsFromSettings(s, { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds, resellGoogerCommissionPercentage });
             setMessage("Video ad watch time saved");
         } catch (error: any) {
             setMessage(error.message || "Failed to save video ad watch time");
@@ -215,6 +227,47 @@ export default function AdCoinRewardSettingsCard() {
                             className="rounded-2xl bg-white px-5 py-3 text-[10px] font-black uppercase tracking-widest text-black transition hover:bg-white/90 disabled:opacity-60"
                         >
                             {savingRewards ? "Saving..." : "Save Reward Amounts"}
+                        </button>
+                    </div>
+
+                    <div className="rounded-3xl border border-amber-400/15 bg-amber-500/[0.04] p-4 space-y-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-100/45">Resell Commission</p>
+                                <h4 className="text-sm font-black uppercase text-white">Resell Googer Commission</h4>
+                            </div>
+                            <IonIcon name="pricetag-outline" className="text-xl text-amber-300" />
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-[minmax(0,260px)_1fr]">
+                            <label className="space-y-2">
+                                <span className="block text-[9px] font-black uppercase tracking-[0.2em] text-white/35">Percentage</span>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        value={inputs.resellGoogerCommissionPercentage}
+                                        onChange={(e) => setInputs((prev) => ({ ...prev, resellGoogerCommissionPercentage: e.target.value }))}
+                                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
+                                    />
+                                    <span className="text-sm font-black text-white/45">%</span>
+                                </div>
+                            </label>
+                            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                                <p className="text-[9px] font-black uppercase tracking-[0.16em] text-amber-100/65">Applies on Receive</p>
+                                <p className="mt-2 text-xs font-semibold leading-6 text-white/60">
+                                    From the held resell commission, this percentage goes to Googer main balance and the remaining amount goes to the reseller.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleSaveRewards}
+                            disabled={savingRewards}
+                            className="rounded-2xl bg-amber-300 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-black transition hover:bg-amber-200 disabled:opacity-60"
+                        >
+                            {savingRewards ? "Saving..." : "Save Resell Commission"}
                         </button>
                     </div>
 

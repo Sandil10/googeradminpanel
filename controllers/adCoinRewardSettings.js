@@ -5,6 +5,7 @@ const DEFAULT_REWARD_SETTINGS = {
     googer_commission_amount: 0.25,
     advertiser_charge_amount: 1.25,
     required_watch_seconds: 15,
+    resell_googer_commission_percentage: 10.00,
 };
 
 let schemaReady = null;
@@ -23,6 +24,7 @@ const formatSettings = (row) => ({
     googerCommissionAmount: Number(row.googer_commission_amount || 0),
     advertiserChargeAmount: Number(row.advertiser_charge_amount || 0),
     requiredWatchSeconds: Number(row.required_watch_seconds || 0),
+    resellGoogerCommissionPercentage: Number(row.resell_googer_commission_percentage ?? 10),
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -42,12 +44,14 @@ const ensureSchema = async () => {
                         googer_commission_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.25,
                         advertiser_charge_amount DECIMAL(10, 2) NOT NULL DEFAULT 1.25,
                         required_watch_seconds INTEGER NOT NULL DEFAULT 15,
+                        resell_googer_commission_percentage DECIMAL(8, 2) NOT NULL DEFAULT 10.00,
                         is_active BOOLEAN NOT NULL DEFAULT TRUE,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 `);
                 await client.query(`ALTER TABLE ad_coin_reward_settings ADD COLUMN IF NOT EXISTS required_watch_seconds INTEGER NOT NULL DEFAULT 15`);
+                await client.query(`ALTER TABLE ad_coin_reward_settings ADD COLUMN IF NOT EXISTS resell_googer_commission_percentage DECIMAL(8, 2) NOT NULL DEFAULT 10.00`);
 
                 await client.query(`
                     CREATE TABLE IF NOT EXISTS ad_coin_collections (
@@ -75,13 +79,15 @@ const ensureSchema = async () => {
                             googer_commission_amount,
                             advertiser_charge_amount,
                             required_watch_seconds,
+                            resell_googer_commission_percentage,
                             is_active
-                        ) VALUES ($1, $2, $3, $4, true)`,
+                        ) VALUES ($1, $2, $3, $4, $5, true)`,
                         [
                             DEFAULT_REWARD_SETTINGS.user_reward_amount,
                             DEFAULT_REWARD_SETTINGS.googer_commission_amount,
                             DEFAULT_REWARD_SETTINGS.advertiser_charge_amount,
                             DEFAULT_REWARD_SETTINGS.required_watch_seconds,
+                            DEFAULT_REWARD_SETTINGS.resell_googer_commission_percentage,
                         ]
                     );
                 }
@@ -104,7 +110,7 @@ const getActiveRewardSettings = async (client = pool) => {
     await ensureSchema();
 
     const activeResult = await client.query(
-        `SELECT id, user_reward_amount, googer_commission_amount, advertiser_charge_amount, required_watch_seconds, is_active, created_at, updated_at
+        `SELECT id, user_reward_amount, googer_commission_amount, advertiser_charge_amount, required_watch_seconds, resell_googer_commission_percentage, is_active, created_at, updated_at
          FROM ad_coin_reward_settings
          WHERE is_active = true
          ORDER BY updated_at DESC, id DESC
@@ -121,14 +127,16 @@ const getActiveRewardSettings = async (client = pool) => {
             googer_commission_amount,
             advertiser_charge_amount,
             required_watch_seconds,
+            resell_googer_commission_percentage,
             is_active
-        ) VALUES ($1, $2, $3, $4, true)
-        RETURNING id, user_reward_amount, googer_commission_amount, advertiser_charge_amount, required_watch_seconds, is_active, created_at, updated_at`,
+        ) VALUES ($1, $2, $3, $4, $5, true)
+        RETURNING id, user_reward_amount, googer_commission_amount, advertiser_charge_amount, required_watch_seconds, resell_googer_commission_percentage, is_active, created_at, updated_at`,
         [
             DEFAULT_REWARD_SETTINGS.user_reward_amount,
             DEFAULT_REWARD_SETTINGS.googer_commission_amount,
             DEFAULT_REWARD_SETTINGS.advertiser_charge_amount,
             DEFAULT_REWARD_SETTINGS.required_watch_seconds,
+            DEFAULT_REWARD_SETTINGS.resell_googer_commission_percentage,
         ]
     );
 
@@ -140,6 +148,7 @@ const validateRewardSettings = (payload) => {
     const googerCommissionAmount = parseAmount(payload?.googerCommissionAmount);
     const advertiserChargeAmount = parseAmount(payload?.advertiserChargeAmount);
     const requiredWatchSeconds = Number.parseInt(payload?.requiredWatchSeconds, 10);
+    const resellGoogerCommissionPercentage = parseAmount(payload?.resellGoogerCommissionPercentage ?? 10);
     const allowMismatch = payload?.allowMismatch === true || payload?.allowMismatch === 'true';
 
     if (userRewardAmount < 0 || googerCommissionAmount < 0 || advertiserChargeAmount < 0) {
@@ -150,6 +159,12 @@ const validateRewardSettings = (payload) => {
 
     if (!Number.isInteger(requiredWatchSeconds) || requiredWatchSeconds < 0) {
         const error = new Error('Required watch seconds must be a whole number greater than or equal to 0');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (resellGoogerCommissionPercentage < 0 || resellGoogerCommissionPercentage > 100) {
+        const error = new Error('Resell Googer commission percentage must be between 0 and 100');
         error.statusCode = 400;
         throw error;
     }
@@ -169,12 +184,13 @@ const validateRewardSettings = (payload) => {
         googerCommissionAmount,
         advertiserChargeAmount,
         requiredWatchSeconds,
+        resellGoogerCommissionPercentage,
         allowMismatch,
     };
 };
 
 const replaceActiveRewardSettings = async (client, payload) => {
-    const { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds } = validateRewardSettings(payload);
+    const { userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds, resellGoogerCommissionPercentage } = validateRewardSettings(payload);
 
     await client.query('BEGIN');
     await client.query('UPDATE ad_coin_reward_settings SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE is_active = true');
@@ -185,12 +201,13 @@ const replaceActiveRewardSettings = async (client, payload) => {
             googer_commission_amount,
             advertiser_charge_amount,
             required_watch_seconds,
+            resell_googer_commission_percentage,
             is_active,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING id, user_reward_amount, googer_commission_amount, advertiser_charge_amount, required_watch_seconds, is_active, created_at, updated_at`,
-        [userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds]
+        ) VALUES ($1, $2, $3, $4, $5, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        RETURNING id, user_reward_amount, googer_commission_amount, advertiser_charge_amount, required_watch_seconds, resell_googer_commission_percentage, is_active, created_at, updated_at`,
+        [userRewardAmount, googerCommissionAmount, advertiserChargeAmount, requiredWatchSeconds, resellGoogerCommissionPercentage]
     );
 
     await client.query('COMMIT');

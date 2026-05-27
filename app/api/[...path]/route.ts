@@ -1,11 +1,11 @@
 /**
  * Catch-all API proxy route.
  * Next.js App Router intercepts all /api/* before rewrites run,
- * so we forward everything to the Express backend on port 5000.
+ * so we forward everything to the Express backend on port 3002.
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+const BACKEND = (process.env.BACKEND_URL || 'http://localhost:3002').replace(/\/$/, '');
 
 // Headers that must not be forwarded (hop-by-hop + encoding that fetch auto-handles)
 // Drop 'origin' and 'referer' so Express CORS never sees the browser's ngrok/external origin.
