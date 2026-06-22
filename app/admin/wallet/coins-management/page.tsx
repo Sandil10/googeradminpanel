@@ -279,7 +279,7 @@ export default function CoinsManagementPage() {
                                         </div>
                                         <div className="flex-1">
                                             <p className="text-sm font-bold text-white flex items-center justify-between">
-                                                {user.full_name}
+                                                {user.user_type?.toLowerCase() === 'admin' ? `@${user.username}` : user.full_name}
                                                 <span className={`text-[10px] px-2 py-0.5 rounded capitalize ${
                                                     user.user_type?.toLowerCase() === 'admin' ? 'bg-orange-500/10 text-orange-400' :
                                                     user.user_type?.toLowerCase() === 'seller' ? 'bg-amber-500/10 text-amber-500' :

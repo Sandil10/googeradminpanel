@@ -7,6 +7,7 @@ import { walletService } from '@/services/walletService';
 import Link from 'next/link';
 import Image from 'next/image';
 import IonIcon from '@/components/IonIcon';
+import PaymentMethodLogo from '@/components/PaymentMethodLogo';
 import ConfirmTransferModal from '@/components/ConfirmTransferModal';
 import SecurityVerificationModal from '@/components/SecurityVerificationModal';
 import ReceiptModal from '@/components/ReceiptModal';

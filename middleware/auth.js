@@ -1,18 +1,16 @@
 const jwt = require('jsonwebtoken');
 const { error } = require('../utils/responseHandler');
+const { extractAuthToken, getJwtSecret } = require('../../shared/api/authToken');
 
 const authMiddleware = (req, res, next) => {
     try {
-        const authHeader = req.header('Authorization');
-        const token = authHeader?.startsWith('Bearer ') 
-            ? authHeader.replace('Bearer ', '') 
-            : authHeader;
+        const token = extractAuthToken(req.header('Authorization'));
 
         if (!token) {
             return error(res, 'Authentication required. No token provided.', 401);
         }
 
-        const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET;
+        const secret = getJwtSecret();
         
         if (!secret) {
             console.error('❌ JWT_SECRET is not defined in environment variables');

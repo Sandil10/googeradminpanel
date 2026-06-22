@@ -122,6 +122,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
             {/* Avatar */}
             <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-8 border-[#09090b] shadow-2xl bg-slate-800 shrink-0">
               <Image
+                unoptimized
                 src={profileImage}
                 alt={user.full_name}
                 fill
@@ -133,10 +134,19 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
             <div className="flex-1 space-y-4 pt-4">
               <div className="flex justify-between items-start">
                 <div>
-                  <h1 className="text-3xl font-black text-white tracking-tight">{user.full_name}</h1>
+                  <h1 className="text-3xl font-black text-white tracking-tight">{user.user_type?.toLowerCase() === 'admin' ? `@${user.username}` : user.full_name}</h1>
                   <p className="text-slate-400 font-medium">@{user.username} • User ID: {user.user_id}</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                    <a
+                        href={`https://app.infranex.it.com/profile/${user.username}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                        <IonIcon name="open-outline" />
+                        View Profile
+                    </a>
                     <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
                         user.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                     }`}>
@@ -177,13 +187,15 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
             <div className="flex flex-col gap-4">
               <div className="flex justify-between items-end px-2">
                   <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest pl-1">Financial State</p>
-                  <button 
-                      onClick={() => router.push(`/admin/users/${userId}/products`)}
+                  <a
+                      href={`https://app.infranex.it.com/profile/${user.username}`}
+                      target="_blank"
+                      rel="noreferrer"
                       className="px-4 py-1.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-widest border border-blue-500/20 transition-all flex items-center gap-1.5 active:scale-95"
                   >
                       <IonIcon name="bag-handle-outline" />
                       View User Products
-                  </button>
+                  </a>
               </div>
               <button 
                   onClick={() => setShowBalanceDetails(true)}
@@ -377,7 +389,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ userId: 
                 <div className="p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-6">
                     <div>
                         <h3 className="text-2xl font-black text-white tracking-tight">Full Transaction Audit</h3>
-                        <p className="text-xs text-slate-500 font-medium uppercase tracking-widest mt-1">Complete history for {user.full_name}</p>
+                        <p className="text-xs text-slate-500 font-medium uppercase tracking-widest mt-1">Complete history for {user.user_type?.toLowerCase() === 'admin' ? `@${user.username}` : user.full_name}</p>
                     </div>
                     
                     <div className="flex items-center gap-4">

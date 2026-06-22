@@ -3,7 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import IonIcon from "./IonIcon";
+import { adminService } from "@/services/adminService";
+import { commissionService } from "@/services/commissionService";
 import { marketService } from "@/services/marketService";
+import { categoryService } from "@/services/categoryService";
 
 interface AddProductModalProps {
     onClose: () => void;
@@ -11,44 +14,19 @@ interface AddProductModalProps {
     initialData?: any;
 }
 
-const CATEGORIES_HIERARCHY: any = {
-    "FASHION": {
-        "Women’s Clothing": ["Dresses", "Tops & Blouses", "T-Shirts", "Jeans", "Pants & Trousers", "Skirts", "Shorts", "Jackets & Coats", "Activewear", "Formal Wear"],
-        "Men’s Clothing": ["T-Shirts", "Shirts", "Jeans", "Trousers", "Shorts", "Jackets", "Suits & Blazers", "Sportswear"],
-        "Kids’ Clothing": ["Boys Wear", "Girls Wear", "School Wear", "Sleepwear", "Sportswear"],
-        "Shoes": ["Men’s Shoes", "Women’s Shoes", "Kids’ Shoes", "Sneakers", "Sandals", "Boots", "Formal Shoes"],
-        "Bags & Accessories": ["Handbags", "Backpacks", "Wallets", "Luggage", "Sunglasses", "Watches", "Jewelry"]
-    },
-    "ELECTRONICS": {
-        "Mobile Phones": ["Smartphones", "Feature Phones", "Phone Cases", "Chargers", "Power Banks", "Screen Protectors"],
-        "Computers": ["Laptops", "Desktop PCs", "Monitors", "Keyboards", "Mice", "Storage Devices"],
-        "TV & Entertainment": ["Smart TVs", "Speakers", "Home Theatre", "Streaming Devices"],
-        "Gaming": ["Consoles", "Controllers", "Games", "Gaming Accessories"]
-    },
-    "HOME & LIVING": {
-        "Kitchen & Dining": ["Cookware", "Dinner Sets", "Kitchen Tools", "Storage Containers"],
-        "Home Decor": ["Wall Art", "Clocks", "Curtains", "Lighting"],
-        "Furniture": ["Sofas", "Beds", "Tables", "Chairs", "Cabinets"]
-    },
-    "BEAUTY & PERSONAL CARE": {
-        "Skincare": ["Face Creams", "Face Wash", "Serums", "Sunscreen"],
-        "Makeup": ["Foundation", "Lipstick", "Eye Makeup", "Makeup Tools"],
-        "Haircare": ["Shampoo", "Conditioner", "Hair Oil", "Styling Tools"]
-    },
-    "BABY & KIDS": {
-        "Baby Essentials": ["Diapers", "Feeding Bottles", "Baby Clothing", "Strollers"],
-        "Toys": ["Educational Toys", "Dolls", "RC Toys", "Board Games"]
-    },
-    "AUTOMOTIVE": {
-        "Car Accessories": ["Seat Covers", "Floor Mats", "Car Electronics", "Car Care"]
-    },
-    "GROCERIES": {
-        "Food Items": ["Rice", "Spices", "Snacks", "Beverages"]
-    },
-    "Custom": {}
+type CategoryNode = {
+    id: number;
+    name: string;
+    level: number;
+    parent_id: number | null;
+    commission_percent?: number | string;
+    children?: CategoryNode[];
 };
 
-const CATEGORIES = Object.keys(CATEGORIES_HIERARCHY);
+type CommissionSettings = {
+    generalCategoryCommission?: number;
+    manualCategoryCommissionEnabled?: boolean;
+};
 
 const SIZES = ["S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "mm", "cm"];
 const UOMS = [
@@ -136,6 +114,7 @@ const COLORS = [
 
 export default function AddProductModal({ onClose, onSuccess, initialData }: AddProductModalProps) {
     const [loading, setLoading] = useState(false);
+    const [categoryTree, setCategoryTree] = useState<CategoryNode[]>([]);
     const [selectedImages, setSelectedImages] = useState<(File | null)[]>([]);
     const [previews, setPreviews] = useState<string[]>([]);
     const [imageColors, setImageColors] = useState<string[]>([]);
@@ -156,6 +135,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
     const [imageSource, setImageSource] = useState<'file' | 'link' | null>(null);
     const [selectedPostType, setSelectedPostType] = useState<'single' | 'variants' | null>(initialData ? (initialData.variants_data ? 'variants' : 'single') : null);
     const [formErrors, setFormErrors] = useState<string[]>([]);
+    const [commissionSettings, setCommissionSettings] = useState<CommissionSettings>({});
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [formData, setFormData] = useState({
@@ -183,6 +163,100 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
     });
 
     const [variants, setVariants] = useState<any[]>([]);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadCategoryTree = async () => {
+            try {
+                const categories = await categoryService.fetchCategoryTree();
+                if (isMounted) setCategoryTree(Array.isArray(categories) ? categories : []);
+            } catch (error) {
+                if (isMounted) setCategoryTree([]);
+            }
+        };
+
+        loadCategoryTree();
+
+        const unsubscribe = categoryService.subscribeToCategoryTreeChanges(() => {
+            loadCategoryTree();
+        });
+
+        const handleFocus = () => {
+            loadCategoryTree();
+        };
+
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            isMounted = false;
+            unsubscribe();
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (initialData) return;
+
+        let alive = true;
+        const loadCommissionDefaults = async () => {
+            try {
+                const payload = await adminService.fetchCommissionSettings();
+                const nextCommission = payload?.commissions?.generalCategoryCommission;
+                const manualEnabled = Boolean(payload?.commissions?.manualCategoryCommissionEnabled);
+                if (alive && Number.isFinite(Number(nextCommission))) {
+                    setCommissionSettings({
+                        generalCategoryCommission: Number(nextCommission),
+                        manualCategoryCommissionEnabled: manualEnabled,
+                    });
+                    setFormData((prev) => ({
+                        ...prev,
+                        googerCommission: String(nextCommission),
+                    }));
+                }
+            } catch {
+                // Keep the local default if the commission endpoint is unavailable.
+            }
+        };
+
+        loadCommissionDefaults();
+        const unsubscribe = commissionService.subscribeToCommissionSettingsChanges(() => {
+            loadCommissionDefaults();
+        });
+
+        const handleFocus = () => {
+            loadCommissionDefaults();
+        };
+
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            alive = false;
+            unsubscribe();
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [initialData]);
+
+    const level1CategoryOptions = categoryTree;
+
+    const getLevel2CategoryOptions = (level1Name: string) => {
+        const level1Node = categoryTree.find((category) => category.name === level1Name);
+        if (level1Node?.children && level1Node.children.length > 0) {
+            return level1Node.children;
+        }
+        return [];
+    };
+
+    const getLevel3CategoryOptions = (level1Name: string, level2Name: string) => {
+        const level2Node = categoryTree
+            .find((category) => category.name === level1Name)
+            ?.children?.find((category) => category.name === level2Name);
+
+        if (level2Node?.children && level2Node.children.length > 0) {
+            return level2Node.children;
+        }
+        return [];
+    };
 
     useEffect(() => {
         if (initialData) {
@@ -665,15 +739,27 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
             if (field === 'category') {
                 updated.subCategory = "";
                 updated.level3Category = "";
+                // Auto-fill Googer Commission from the selected main category
+                const level1Node = categoryTree.find((n) => n.name === value);
+                const catCommission = Number(level1Node?.commission_percent || 0);
+                const fallback = Number(commissionSettings.generalCategoryCommission || 0);
+                updated.googerCommission = String(catCommission > 0 ? catCommission : fallback);
             } else if (field === 'subCategory') {
                 updated.level3Category = "";
-                // Automatic 5% Googer Commission when a Level 2 subcategory is chosen
-                updated.googerCommission = "5";
             }
             return updated;
         });
         setOpenPicker(null);
     };
+
+    useEffect(() => {
+        if (initialData) return;
+        if (commissionSettings.manualCategoryCommissionEnabled) return;
+        const next = commissionSettings.generalCategoryCommission;
+        if (typeof next === 'number' && Number.isFinite(next)) {
+            setFormData((prev) => ({ ...prev, googerCommission: String(next) }));
+        }
+    }, [commissionSettings, initialData]);
 
     const cycleColor = (direction: 'next' | 'prev') => {
         if (previews.length === 0) return;
@@ -1144,7 +1230,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                                             Category <span className="text-red-500">*</span>
                                         </label>
                                         <div className="flex flex-col gap-2">
-                                            {formData.category === 'Custom' || (formData.category && !CATEGORIES.includes(formData.category)) ? (
+                                        {formData.category === 'Custom' || (formData.category && !level1CategoryOptions.some((category) => category.name === formData.category)) ? (
                                                 <div className="relative">
                                                     <input
                                                         type="text"
@@ -1164,7 +1250,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                                                 </div>
                                             ) : (
                                                 <div
-                                                    onClick={() => setOpenPicker({ type: 'form', field: 'category', options: CATEGORIES, title: 'Category', value: formData.category })}
+                                                    onClick={() => setOpenPicker({ type: 'form', field: 'category', options: level1CategoryOptions.map((category) => category.name), title: 'Category', value: formData.category })}
                                                     className={`w-full bg-slate-800/50 border rounded-xl px-3 py-2.5 text-xs text-white flex items-center justify-between cursor-pointer transition-all ${formErrors.includes('category') ? 'border-red-500 ring-1 ring-red-500/50' : 'border-white/10 focus:ring-white/30'}`}
                                                 >
                                                     <span className="truncate">{formData.category || "Select Category"}</span>
@@ -1180,7 +1266,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                                         </label>
                                         <div className="flex flex-col gap-2">
                                             {(() => {
-                                                const subCatOptions = formData.category ? Object.keys(CATEGORIES_HIERARCHY[formData.category] || {}) : [];
+                                                const subCatOptions = formData.category ? getLevel2CategoryOptions(formData.category).map((category) => category.name) : [];
                                                 const isCustom = formData.subCategory === 'Custom' || (formData.subCategory && !subCatOptions.includes(formData.subCategory));
 
                                                 if (isCustom) {
@@ -1229,7 +1315,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                                         </label>
                                         <div className="flex flex-col gap-2">
                                             {(() => {
-                                                const level3CatOptions = (formData.category && formData.subCategory) ? (CATEGORIES_HIERARCHY[formData.category]?.[formData.subCategory] || []) : [];
+                                                const level3CatOptions = (formData.category && formData.subCategory) ? getLevel3CategoryOptions(formData.category, formData.subCategory).map((category: { name: string }) => category.name) : [];
                                                 const isCustom = formData.level3Category === 'Custom' || (formData.level3Category && !level3CatOptions.includes(formData.level3Category));
 
                                                 if (isCustom) {
@@ -1894,6 +1980,7 @@ export default function AddProductModal({ onClose, onSuccess, initialData }: Add
                                         name="googerCommission"
                                         value={formData.googerCommission || ""}
                                         onChange={handleInputChange}
+                                        readOnly={!commissionSettings.manualCategoryCommissionEnabled}
                                         className={`w-full bg-slate-800/50 border rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:ring-1 transition-all font-bold ${parseFloat(formData.googerCommission) < 5 ? 'border-red-500/50 focus:ring-red-500/30' : 'border-white/10 focus:ring-white/30'}`}
                                         placeholder="0"
                                     />

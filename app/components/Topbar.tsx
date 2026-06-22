@@ -61,6 +61,7 @@ export default function Topbar() {
                         src="/assets/images/googer.png"
                         alt="Googer Logo"
                         fill
+                        sizes="32px"
                         className="object-contain"
                     />
                 </div>
@@ -168,7 +169,7 @@ export default function Topbar() {
                                 <div className="max-h-80 overflow-y-auto custom-scrollbar">
                                     {notifications.length > 0 ? (
                                         notifications.map((notif) => (
-                                            <div key={notif.id} className="p-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors flex gap-4 animate-in slide-in-from-right-4">
+                                            <div key={notif.id} className="p-4 border-b border-white/5 hover:bg-white/[0.03] transition-colors flex gap-4 animate-in fade-in duration-150">
                                                 <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center ${notif.type === 'success' ? 'bg-green-500/20 text-green-500' : 'bg-blue-500/20 text-blue-500'}`}>
                                                     <IonIcon name={notif.type === 'success' ? 'checkmark-circle' : 'information-circle'} className="text-lg" />
                                                 </div>
@@ -201,6 +202,7 @@ export default function Topbar() {
                             className="relative block w-9 h-9 rounded-full overflow-hidden border-2 border-white/10 hover:border-white/50 transition-all active:scale-95 group"
                         >
                             <Image
+                                unoptimized
                                 src={profileImage}
                                 alt={user?.full_name || "User"}
                                 fill

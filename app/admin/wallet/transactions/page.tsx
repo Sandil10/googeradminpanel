@@ -19,29 +19,28 @@ export default function TransactionsPage() {
     const [hasShownAutoReceipt, setHasShownAutoReceipt] = useState(false);
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchData = async (isPolling = false) => {
             try {
-                const profile = await authService.getProfile();
-                setUser(profile);
+                if (!isPolling) {
+                    const profile = await authService.getProfile();
+                    setUser(profile);
+                }
                 const txData = await walletService.getTransactionHistory();
                 setTransactions(txData);
             } catch (error) {
                 console.error("Error fetching transactions:", error);
             } finally {
-                setLoading(false);
+                if (!isPolling) setLoading(false);
             }
         };
-        fetchData();
+        fetchData(false);
+        const interval = setInterval(() => {
+            if (document.visibilityState !== "visible") return;
+            void fetchData(true);
+        }, 10000);
+        return () => clearInterval(interval);
     }, []);
 
-    // Auto-show receipt
-    useEffect(() => {
-        if (!loading && transactions.length > 0 && !hasShownAutoReceipt) {
-            setReceiptTransaction(transactions[0]);
-            setShowReceiptModal(true);
-            setHasShownAutoReceipt(true);
-        }
-    }, [loading, transactions, hasShownAutoReceipt]);
 
     const handleCancelTransaction = async (txId: number) => {
         if (!confirm("Are you sure you want to cancel this transaction?")) return;

@@ -1,7 +1,5 @@
 
-const isClient = typeof window !== 'undefined';
-const API_URL = process.env.NEXT_PUBLIC_API_URL ||
-    (isClient && window.location.hostname !== 'localhost' ? '/api' : 'http://localhost:5000/api');
+const API_URL = '/api';
 
 const getAuthHeaders = () => {
     const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;

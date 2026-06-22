@@ -2,6 +2,29 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
 
+const PERMANENT_DEACTIVATION_MESSAGE = 'Your account is permanently deactivated.';
+
+const ensurePermanentDeactivationColumns = async () => {
+    await pool.query(`ALTER TABLE users ALTER COLUMN status TYPE VARCHAR(40)`).catch(() => {});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deactivated BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS self_deleted_at TIMESTAMP DEFAULT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS permanent_deactivated_at TIMESTAMP DEFAULT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS appeal_status VARCHAR(30) DEFAULT NULL`).catch(() => {});
+};
+
+const isPermanentlyDeactivatedUser = (user) => {
+    const status = String(user?.status || '').toLowerCase();
+    const appealStatus = String(user?.appeal_status || '').toLowerCase();
+    return Boolean(user?.permanent_deactivated_at)
+        || status === 'permanently deactivated'
+        || (Boolean(user?.is_deactivated) && appealStatus === 'rejected');
+};
+
+const isSelfDeletedUser = (user) => {
+    const status = String(user?.status || '').toLowerCase();
+    return Boolean(user?.self_deleted_at) || status === 'deleted';
+};
+
 // Generate unique 6-digit user ID
 const generateUserId = async () => {
     let userId;
@@ -53,6 +76,7 @@ const validatePassword = (password) => {
 exports.register = async (req, res) => {
     try {
         const { username, fullName, email, password, isSeller, referralCode } = req.body; // Accept referralCode
+        await ensurePermanentDeactivationColumns();
 
         // Validate required fields
         if (!username || !fullName || !email || !password) {
@@ -80,6 +104,18 @@ exports.register = async (req, res) => {
         if (userExists.rows.length > 0) {
             const existingUser = userExists.rows[0];
             if (existingUser.email === email) {
+                if (isSelfDeletedUser(existingUser)) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Profile not found'
+                    });
+                }
+                if (isPermanentlyDeactivatedUser(existingUser)) {
+                    return res.status(403).json({
+                        success: false,
+                        message: PERMANENT_DEACTIVATION_MESSAGE
+                    });
+                }
                 return res.status(400).json({
                     success: false,
                     message: 'Email already registered'
@@ -119,7 +155,7 @@ exports.register = async (req, res) => {
                 `INSERT INTO users (user_id, username, full_name, email, password, user_type, referral_code, wallet_balance)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                  RETURNING id, user_id, username, full_name, email, user_type, profile_picture, referral_code, wallet_balance, created_at`,
-                [userId, username, fullName, email, hashedPassword, userType, newReferralCode, 1000.00]
+                [userId, username, fullName, email, hashedPassword, userType, newReferralCode, 0.00]
             );
 
             const newUserId = newUser.rows[0].id;
@@ -202,6 +238,7 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
+        await ensurePermanentDeactivationColumns();
 
         if (!email || !password) {
             return res.status(400).json({ success: false, message: 'Please provide email and password' });
@@ -211,6 +248,22 @@ exports.login = async (req, res) => {
 
         if (user.rows.length === 0) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+
+        if (isPermanentlyDeactivatedUser(user.rows[0])) {
+            return res.status(403).json({
+                success: false,
+                message: PERMANENT_DEACTIVATION_MESSAGE,
+                status: 'permanently_deactivated'
+            });
+        }
+
+        if (isSelfDeletedUser(user.rows[0])) {
+            return res.status(404).json({
+                success: false,
+                message: 'Profile not found',
+                status: 'profile_not_found'
+            });
         }
 
         const isMatch = await bcrypt.compare(password, user.rows[0].password);
@@ -274,7 +327,7 @@ exports.verifyPassword = async (req, res) => {
 exports.getProfile = async (req, res) => {
     try {
         const user = await pool.query(
-            'SELECT id, user_id, username, full_name, email, profile_picture, bio, referral_code, wallet_balance, created_at FROM users WHERE id = $1',
+            'SELECT id, user_id, username, full_name, email, profile_picture, bio, referral_code, wallet_balance, created_at, user_type FROM users WHERE id = $1',
             [req.user.id]
         );
 

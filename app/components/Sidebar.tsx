@@ -2,40 +2,36 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import { authService } from "../services/authService";
 import IonIcon from "./IonIcon";
+import { displayName as getDisplayName } from "../utils/displayName";
 
-const menuItems = [
+type SidebarItem = {
+    name: string;
+    icon: string;
+    href?: string;
+};
+
+const menuItems: SidebarItem[] = [
     { name: "Dashboard", icon: "grid", href: "/admin" },
-    {
-        name: "Users",
-        icon: "people",
-        children: [
-            { name: "All Users", href: "/admin/users/all" },
-            { name: "Sellers", href: "/admin/users/sellers" },
-            { name: "Employees", href: "/admin/users/employees" },
-            { name: "Deactivated Users", href: "/admin/users/deactivated" },
-        ]
-    },
-    {
-        name: "Products",
-        icon: "bag-handle",
-        children: [
-            { name: "All Products", href: "/admin/products/all" },
-            { name: "Active Products", href: "/admin/products/active" },
-            { name: "Reviewed Products", href: "/admin/products/reviewed" },
-            { name: "Rejected Products", href: "/admin/products/rejected" },
-            { name: "Deactivated Products", href: "/admin/products/deactivated" },
-        ]
-    },
+    { name: "Users", icon: "people", href: "/admin/users/all" },
+    { name: "Reports", icon: "flag", href: "/admin/reports" },
+    { name: "Products", icon: "bag-handle", href: "/admin/products/all" },
+    { name: "Ads", icon: "megaphone", href: "/admin/products/ads" },
+    { name: "Upload Control", icon: "cloud-upload", href: "/admin/products/ads/upload-control" },
+    { name: "Transaction History", icon: "receipt", href: "/admin/products/ads/history" },
+    { name: "Product Status", icon: "stats-chart", href: "/admin/products/ads/product-status" },
     { name: "Posts", icon: "document-text", href: "/admin/posts" },
+    { name: "Referrals", icon: "git-network", href: "/admin/referrals" },
     { name: "Percentage Customization", icon: "options", href: "/admin/customization" },
     { name: "Verification", icon: "checkmark-circle", href: "/admin/verification" },
     { name: "Subscription", icon: "card", href: "/admin/subscription" },
     { name: "Top-up / Requests", icon: "cash", href: "/admin/wallet/topup" },
+    { name: "Withdrawal", icon: "arrow-up-circle", href: "/admin/wallet/withdrawal" },
     { name: "Wallet", icon: "wallet", href: "/admin/wallet/main" },
+    { name: "Chat & Notifications", icon: "notifications", href: "/admin/notifications" },
 ];
 
 interface SidebarProps {
@@ -47,16 +43,14 @@ interface SidebarProps {
 
 export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMobile }: SidebarProps) {
     const pathname = usePathname();
+    const router = useRouter();
     const [showUserMenu, setShowUserMenu] = useState(false);
-    const [openMenus, setOpenMenus] = useState<string[]>([]);
     const [user, setUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-
-    const toggleMenu = (name: string) => {
-        setOpenMenus((prev: string[]) =>
-            prev.includes(name) ? prev.filter((m: string) => m !== name) : [...prev, name]
-        );
-    };
+    const prefetchHref = useCallback((href?: string) => {
+        if (!href) return;
+        router.prefetch(href);
+    }, [router]);
 
     useEffect(() => {
         const fetchUser = async () => {
@@ -86,8 +80,9 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
     }, []);
 
     const handleLogout = () => {
-        // authService.logout();
-        console.log("Logged out");
+        try { localStorage.removeItem("token"); } catch (_) {}
+        try { localStorage.removeItem("user"); } catch (_) {}
+        window.location.href = "/";
     };
 
     // Generate profile image URL
@@ -106,8 +101,8 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
 
     return (
         <aside
-            className={`fixed left-0 top-0 h-screen bg-black text-white flex flex-col border-r border-[#1a1a1a] z-50 transition-all duration-300 md:translate-x-0 
-                ${isMobileOpen ? "translate-x-0 w-64 shadow-[20px_0_60px_rgba(0,0,0,0.8)]" : "-translate-x-full w-64"} 
+            className={`fixed left-0 top-0 z-50 flex h-screen max-w-[88vw] flex-col border-r border-[#1a1a1a] bg-black text-white transition-all duration-300 md:translate-x-0
+                ${isMobileOpen ? "translate-x-0 w-64 shadow-[20px_0_60px_rgba(0,0,0,0.8)]" : "-translate-x-full w-64"}
                 ${isCollapsed ? "md:w-20" : "md:w-64"}
             `}
         >
@@ -119,6 +114,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                             src="/assets/images/googer.png"
                             alt="Logo"
                             fill
+                            sizes="32px"
                             className="object-contain"
                         />
                     </div>
@@ -141,72 +137,36 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                 {/* Collapse Toggle Button (Desktop only) */}
                 <button
                     onClick={onToggle}
-                    className="hidden md:flex absolute -right-3 top-7 w-6 h-6 bg-[#1a1a1a] text-white rounded-full items-center justify-center border border-[#333] hover:bg-white hover:text-black transition-all z-50"
+                    className="hidden md:flex absolute -right-3.5 top-8 w-7 h-7 bg-[#1a1a1a] text-white rounded-full items-center justify-center border border-[#333] hover:bg-white hover:text-black transition-all z-50 shadow-md"
                 >
-                    <IonIcon name={isCollapsed ? "chevron-forward-outline" : "chevron-back-outline"} className="text-[10px]" />
+                    <IonIcon name={isCollapsed ? "chevron-forward-outline" : "chevron-back-outline"} className="text-xs" />
                 </button>
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1 custom-scrollbar">
+            <nav className="custom-scrollbar flex-1 space-y-1 overflow-y-auto px-3 py-4 sm:px-4">
                 {menuItems.map((item) => {
-                    const hasChildren = !!item.children;
-                    const isOpen = openMenus.includes(item.name);
-                    const isActive = pathname === item.href || item.children?.some(child => pathname === child.href);
+                    const isActive = pathname === item.href;
 
                     return (
                         <div key={item.name} className="flex flex-col">
-                            {hasChildren ? (
-                                <>
-                                    <button
-                                        onClick={() => toggleMenu(item.name)}
-                                        className={`flex items-center gap-4 px-3 py-2.5 rounded-lg transition-all group ${isActive ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5 hover:text-white"
-                                            } ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
-                                    >
-                                        <div className="text-xl w-6 flex justify-center shrink-0">
-                                            <IonIcon name={(item.icon || "list") + "-outline"} />
-                                        </div>
-                                        {(!isCollapsed || isMobileOpen) && (
-                                            <>
-                                                <span className="font-medium text-sm flex-1 text-left">{item.name}</span>
-                                                <IonIcon
-                                                    name={isOpen ? "chevron-down" : "chevron-forward"}
-                                                    className={`text-[10px] transition-transform ${isOpen ? "rotate-0" : ""}`}
-                                                />
-                                            </>
-                                        )}
-                                    </button>
-                                    {(!isCollapsed || isMobileOpen) && isOpen && (
-                                        <div className="mt-1 ml-10 space-y-1 border-l border-[#1a1a1a] pl-4 animate-in slide-in-from-top-1 duration-200">
-                                            {item.children?.map(child => (
-                                                <Link
-                                                    key={child.name}
-                                                    href={child.href}
-                                                    onClick={() => setOpenMenus([])}
-                                                    className={`block py-2 px-3 text-xs rounded-md transition-colors ${pathname === child.href ? "text-white font-semibold" : "text-gray-500 hover:text-gray-200"}`}
-                                                >
-                                                    {child.name}
-                                                </Link>
-                                            ))}
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <Link
-                                    href={item.href || "#"}
-                                    onClick={onCloseMobile}
-                                    className={`flex items-center gap-4 px-3 py-2.5 rounded-lg transition-all group ${pathname === item.href ? "bg-white text-black shadow-lg shadow-white/10" : "text-slate-400 hover:bg-white/5 hover:text-white"
-                                        } ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
-                                    title={isCollapsed ? item.name : ""}
-                                >
-                                    <div className="text-xl w-6 flex justify-center shrink-0">
-                                        <IonIcon name={(item.icon || "list") + "-outline"} />
-                                    </div>
-                                    {(!isCollapsed || isMobileOpen) && (
-                                        <span className="font-medium text-sm transition-opacity duration-200">{item.name}</span>
-                                    )}
-                                </Link>
-                            )}
+                            <Link
+                                href={item.href || "#"}
+                                onMouseEnter={() => prefetchHref(item.href)}
+                                onFocus={() => prefetchHref(item.href)}
+                                onTouchStart={() => prefetchHref(item.href)}
+                                onClick={onCloseMobile}
+                                className={`flex items-center gap-4 px-3 py-2.5 rounded-lg transition-all group ${isActive ? "bg-white text-black shadow-lg shadow-white/10" : "text-slate-400 hover:bg-white/5 hover:text-white"
+                                    } ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
+                                title={isCollapsed ? item.name : ""}
+                            >
+                                <div className="text-xl w-6 flex justify-center shrink-0">
+                                    <IonIcon name={(item.icon || "list") + "-outline"} />
+                                </div>
+                                {(!isCollapsed || isMobileOpen) && (
+                                    <span className="font-medium text-sm transition-opacity duration-200">{item.name}</span>
+                                )}
+                            </Link>
                         </div>
                     );
                 })}
@@ -226,15 +186,16 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
 
                         {/* Popup Card */}
                         <div className="absolute bottom-full left-4 right-4 mb-2 bg-[#09090b] rounded-2xl shadow-2xl border border-[#1a1a1a] z-50 overflow-hidden">
-                            {/* Gradient Top Bar */}
-                            <div className="h-16 bg-gradient-to-r from-purple-600 via-pink-500 to-blue-500"></div>
+                            {/* Rainbow gradient top bar */}
+                            <div className="h-14 bg-gradient-to-r from-rose-500 via-amber-400 via-emerald-400 via-blue-500 to-violet-600" />
 
                             {/* User Info */}
-                            <div className="p-4 -mt-8">
-                                <div className="flex items-start gap-3 mb-4">
-                                    <div className="relative w-16 h-16 rounded-full overflow-hidden border-4 border-[#09090b] shrink-0 bg-gray-800">
+                            <div className="p-4 -mt-7">
+                                <div className="flex items-end gap-3 mb-4">
+                                    <div className="relative w-14 h-14 rounded-full overflow-hidden border-[3px] border-[#09090b] shrink-0 bg-gray-800">
                                         {user && profileImage && (
                                             <Image
+                                                unoptimized
                                                 src={profileImage}
                                                 alt={user.full_name || user.username || "User"}
                                                 fill
@@ -242,27 +203,11 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                                             />
                                         )}
                                     </div>
-                                    <div className="flex-1 min-w-0 mt-2">
-                                        <h3 className="font-bold text-white text-sm truncate">
-                                            {user?.full_name || user?.username || "User"}
+                                    <div className="flex-1 min-w-0 pb-1">
+                                        <h3 className="font-black text-white text-[13px] truncate leading-tight">
+                                            {getDisplayName(user?.user_type, user?.full_name, user?.username) || "User"}
                                         </h3>
-                                        <p className="text-xs text-gray-400 truncate">@{user?.username || "user"}</p>
-                                    </div>
-                                </div>
-
-                                {/* Stats */}
-                                <div className="grid grid-cols-3 gap-2 mb-4 text-center">
-                                    <div>
-                                        <div className="text-white font-bold text-sm">0</div>
-                                        <div className="text-gray-500 text-[10px]">Posts</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-white font-bold text-sm">0</div>
-                                        <div className="text-gray-500 text-[10px]">Following</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-white font-bold text-sm">0</div>
-                                        <div className="text-gray-500 text-[10px]">Followers</div>
+                                        <p className="text-[10px] text-white/40 truncate">@{user?.username || "user"}</p>
                                     </div>
                                 </div>
 
@@ -317,6 +262,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                                 />
                             ) : (
                                 <Image
+                                    unoptimized
                                     src={profileImage}
                                     alt={user.full_name || user.username || "User"}
                                     fill
@@ -330,7 +276,7 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                         <>
                             <div className="flex-1 min-w-0 transition-opacity duration-200">
                                 <p className="text-sm font-semibold truncate">
-                                    {user?.full_name || user?.username || "Loading..."}
+                                    {getDisplayName(user?.user_type, user?.full_name, user?.username) || "Loading..."}
                                 </p>
                                 <p className="text-xs text-gray-400 truncate">@{user?.username || "user"}</p>
                             </div>
