@@ -1,0 +1,53 @@
+{
+  "name": "googer-admin-panel",
+  "version": "1.0.0",
+  "description": "Googer Admin Panel with Express backend and Next.js frontend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:prod": "node production-server.js",
+    "server": "nodemon server.js",
+    "worker": "node workers/backgroundWorker.js",
+    "test:service-contracts": "node scripts/test-service-contracts.js",
+    "validate:runtime-contracts": "node scripts/validate-runtime-contracts.js .env.runtime",
+    "loadtest": "node ../shared/scripts/load-test.js",
+    "migrate": "node scripts/run-migrations.js",
+    "client": "next dev -H 0.0.0.0 -p 6001",
+    "client:start": "next start -H 0.0.0.0 -p 6001",
+    "preview": "npm run build && npm run client:start",
+    "tunnel:frontend": "cloudflared tunnel --url http://localhost:6001",
+    "tunnel:backend": "cloudflared tunnel --url http://localhost:3001",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "next build --webpack",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express-rate-limit": "^7.4.1",
+    "express": "^4.19.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
+    "multer": "^2.1.1",
+    "next": "^16.1.6",
+    "pg": "^8.11.5",
+    "pg-connection-string": "^2.12.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.1",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.27",
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.1.0",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.4.5"
+  }
+}

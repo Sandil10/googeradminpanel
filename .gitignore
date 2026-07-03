@@ -1,0 +1,50 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+.env
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Large assets/logs
+*.log
+image_debug.json
+results.txt
+db-verify.txt
+build_*.txt
+build_*.log
+webpack_error.log
+
+# database exports and local backups
+database/*.sql
+*.bak
+*.bak.
+*.bak-
+*.before-*

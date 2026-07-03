@@ -1,0 +1,62 @@
+services:
+  admin-app:
+    build:
+      context: ..
+      dockerfile: googeradminpanel/docker/admin-app.Dockerfile
+    environment:
+      NODE_ENV: production
+      SERVE_NEXT: "true"
+      PORT: ${PORT:-3002}
+      FRONTEND_URL: ${ADMIN_URL}
+      ADMIN_URL: ${ADMIN_URL}
+      WEB_URL: ${WEB_URL}
+      CORS_ORIGIN: ${CORS_ORIGIN:-${ADMIN_URL}}
+      BACKEND_URL: ${BACKEND_URL:-http://admin-app:3002}
+      GOOGER_MAIN_API_URL: ${GOOGER_MAIN_API_URL}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_SSL: ${DB_SSL:-false}
+      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:-false}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      OPS_MONITOR_TOKEN: ${OPS_MONITOR_TOKEN}
+    ports:
+      - "${ADMIN_PUBLIC_PORT:-3002}:3002"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3002/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  admin-worker:
+    build:
+      context: ..
+      dockerfile: googeradminpanel/docker/admin-app.Dockerfile
+    command: ["npm", "run", "worker"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_SSL: ${DB_SSL:-false}
+      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:-false}
+      DB_POOL_MAX: ${WORKER_DB_POOL_MAX:-5}
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      OPS_MONITOR_TOKEN: ${OPS_MONITOR_TOKEN}
+      GOOGER_MAIN_API_URL: ${GOOGER_MAIN_API_URL}
+      WORKER_ID: ${WORKER_ID:-googer-admin-worker-1}
+      BACKGROUND_WORKER_POLL_MS: ${BACKGROUND_WORKER_POLL_MS:-1000}
+      BACKGROUND_WORKER_RETRY_MS: ${BACKGROUND_WORKER_RETRY_MS:-30000}
+      DEACTIVATED_USER_CLEANUP_MS: ${DEACTIVATED_USER_CLEANUP_MS:-3600000}
+    depends_on:
+      admin-app:
+        condition: service_started
