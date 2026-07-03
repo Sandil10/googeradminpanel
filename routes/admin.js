@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const os = require('os');
+const fs = require('fs');
+const fsp = require('fs/promises');
+const path = require('path');
 const authMiddleware = require('../middleware/auth');
 const adminOnly = require('../middleware/adminOnly');
 const { writeAdminAuditEvent } = require('../utils/adminAuditLogger');
@@ -21,6 +25,112 @@ async function audit(req, event) {
 function getIdempotencyKey(req) {
     const value = req.get('x-idempotency-key');
     return value ? value.trim() : null;
+}
+
+function trafficNumber(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function trafficRound(value, digits = 2) {
+    const factor = 10 ** digits;
+    return Math.round(trafficNumber(value) * factor) / factor;
+}
+
+function trafficPercent(part, total) {
+    const denominator = trafficNumber(total);
+    if (denominator <= 0) return 0;
+    return trafficRound((trafficNumber(part) / denominator) * 100);
+}
+
+function trafficClamp(value, min, max) {
+    return Math.min(max, Math.max(min, trafficNumber(value)));
+}
+
+function detectTrafficTopology() {
+    const hasRemoteDb = Boolean(process.env.DB_HOST && !/localhost|127\.0\.0\.1/i.test(String(process.env.DB_HOST)));
+    const hasRedis = Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
+    const hasObjectStorage = Boolean(process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET);
+    if (hasRemoteDb || hasRedis || hasObjectStorage) return 'split-services';
+    return 'single-server';
+}
+
+function detectHostingEnvironment() {
+    if (process.env.AWS_EXECUTION_ENV || process.env.EC2_HOME || process.env.AWS_REGION) return 'AWS / EC2';
+    if (process.env.DOCKER_CONTAINER || fs.existsSync('/.dockerenv')) return 'Docker host';
+    return `${os.platform()} server`;
+}
+
+function getDiskSnapshot(targetPath) {
+    try {
+        if (typeof fs.statfsSync !== 'function') {
+            return { totalBytes: null, freeBytes: null, usedBytes: null, usagePercent: null };
+        }
+        const stats = fs.statfsSync(targetPath);
+        const blockSize = trafficNumber(stats.bsize || stats.frsize);
+        const totalBytes = blockSize * trafficNumber(stats.blocks);
+        const freeBytes = blockSize * trafficNumber(stats.bavail || stats.bfree);
+        const usedBytes = Math.max(0, totalBytes - freeBytes);
+        return {
+            totalBytes,
+            freeBytes,
+            usedBytes,
+            usagePercent: trafficPercent(usedBytes, totalBytes),
+        };
+    } catch {
+        return { totalBytes: null, freeBytes: null, usedBytes: null, usagePercent: null };
+    }
+}
+
+async function getDirectorySize(targetPath, depth = 0) {
+    try {
+        const stat = await fsp.stat(targetPath);
+        if (!stat.isDirectory()) return stat.size;
+        if (depth > 4) return 0;
+        const entries = await fsp.readdir(targetPath, { withFileTypes: true });
+        const sizes = await Promise.all(entries.slice(0, 250).map(async (entry) => {
+            const nextPath = path.join(targetPath, entry.name);
+            if (entry.isDirectory()) return getDirectorySize(nextPath, depth + 1);
+            if (!entry.isFile()) return 0;
+            try {
+                return (await fsp.stat(nextPath)).size;
+            } catch {
+                return 0;
+            }
+        }));
+        return sizes.reduce((sum, size) => sum + trafficNumber(size), 0);
+    } catch {
+        return 0;
+    }
+}
+
+async function getNetworkTrafficSnapshot() {
+    if (process.platform !== 'linux') return { rxBytes: null, txBytes: null };
+    try {
+        const raw = await fsp.readFile('/proc/net/dev', 'utf8');
+        let rxBytes = 0;
+        let txBytes = 0;
+        raw.split('\n').slice(2).forEach((line) => {
+            const [ifacePart, dataPart] = line.trim().split(':');
+            const iface = String(ifacePart || '').trim();
+            if (!iface || iface === 'lo') return;
+            const fields = String(dataPart || '').trim().split(/\s+/);
+            rxBytes += trafficNumber(fields[0]);
+            txBytes += trafficNumber(fields[8]);
+        });
+        return { rxBytes, txBytes };
+    } catch {
+        return { rxBytes: null, txBytes: null };
+    }
+}
+
+async function tableExists(tableName) {
+    try {
+        const result = await pool.query('SELECT to_regclass($1) AS table_name', [`public.${tableName}`]);
+        return Boolean(result.rows[0]?.table_name);
+    } catch {
+        return false;
+    }
 }
 
 router.get('/stats', async (req, res) => {
@@ -666,34 +776,20 @@ router.get('/all-transactions', async (req, res) => {
 
 router.get('/traffic-analysis', async (req, res) => {
     try {
-        const presenceTable = await pool.query("SELECT to_regclass('public.chat_presence') AS table_name");
-        if (!presenceTable.rows[0]?.table_name) {
-            return res.json({
-                success: true,
-                generatedAt: new Date().toISOString(),
-                windowSeconds: 20,
-                activeConcurrentUsers: 0,
-                onlineUsers: 0,
-                idleUsers: 0,
-                dailyActiveUsers: 0,
-                totalTrackedUsers: 0,
-                recentUsers: [],
-                note: 'chat_presence table is not available yet',
-            });
-        }
-
-        const [summary, recentUsers] = await Promise.all([
-            pool.query(`
+        const hasPresence = await tableExists('chat_presence');
+        const [summary, recentUsers, databaseStats, databaseSessions, diskSnapshot, networkSnapshot, localUploadBytes] = await Promise.all([
+            hasPresence ? pool.query(`
                 SELECT
                     COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '20 seconds')::int AS active_concurrent_users,
                     COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '60 seconds')::int AS online_users,
                     COUNT(*) FILTER (WHERE last_seen_at < NOW() - INTERVAL '60 seconds' AND last_seen_at >= NOW() - INTERVAL '5 minutes')::int AS idle_users,
                     COUNT(*) FILTER (WHERE last_seen_at >= date_trunc('day', NOW()))::int AS daily_active_users,
+                    COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '30 days')::int AS monthly_active_users,
                     COUNT(*)::int AS total_tracked_users,
                     MAX(last_seen_at) AS latest_seen_at
                 FROM chat_presence
-            `),
-            pool.query(`
+            `) : Promise.resolve({ rows: [{}] }),
+            hasPresence ? pool.query(`
                 SELECT
                     cp.user_id,
                     u.username,
@@ -705,33 +801,196 @@ router.get('/traffic-analysis', async (req, res) => {
                 LEFT JOIN users u ON u.id = cp.user_id
                 ORDER BY cp.last_seen_at DESC
                 LIMIT 12
-            `),
+            `) : Promise.resolve({ rows: [] }),
+            pool.query(`
+                SELECT
+                    pg_database_size(current_database())::bigint AS database_size_bytes,
+                    COALESCE(numbackends, 0)::int AS active_connections,
+                    COALESCE(blks_read, 0)::bigint AS blks_read,
+                    COALESCE(blks_hit, 0)::bigint AS blks_hit
+                FROM pg_stat_database
+                WHERE datname = current_database()
+                LIMIT 1
+            `).catch(() => ({ rows: [{}] })),
+            pool.query(`
+                SELECT
+                    COUNT(*) FILTER (WHERE state = 'active')::int AS active_queries,
+                    COUNT(*)::int AS total_sessions
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+            `).catch(() => ({ rows: [{}] })),
+            Promise.resolve(getDiskSnapshot(process.cwd())),
+            getNetworkTrafficSnapshot(),
+            getDirectorySize(path.resolve(process.cwd(), '../googernew-main/backend/public/uploads')),
         ]);
 
         const row = summary.rows[0] || {};
-        const activeConcurrentUsers = Number(row.active_concurrent_users || 0);
-        const onlineUsers = Number(row.online_users || 0);
+        const dbRow = databaseStats.rows[0] || {};
+        const dbSessionRow = databaseSessions.rows[0] || {};
+        const activeConcurrentUsers = trafficNumber(row.active_concurrent_users);
+        const onlineUsers = trafficNumber(row.online_users);
+        const dailyActiveUsers = trafficNumber(row.daily_active_users);
+        const monthlyActiveUsers = trafficNumber(row.monthly_active_users);
+        const totalMemoryBytes = os.totalmem();
+        const freeMemoryBytes = os.freemem();
+        const usedMemoryBytes = Math.max(0, totalMemoryBytes - freeMemoryBytes);
+        const memoryUsagePercent = trafficPercent(usedMemoryBytes, totalMemoryBytes);
+        const cpuCores = Math.max(1, os.cpus()?.length || 1);
+        const cpuUsagePercent = process.platform === 'win32'
+            ? null
+            : trafficClamp(trafficRound((os.loadavg()[0] / cpuCores) * 100), 0, 100);
+        const cacheTotal = trafficNumber(dbRow.blks_read) + trafficNumber(dbRow.blks_hit);
+        const cacheHitRatio = cacheTotal > 0 ? trafficPercent(dbRow.blks_hit, cacheTotal) : 0;
+        const topology = detectTrafficTopology();
+        const requestsPerSecond = trafficRound(activeConcurrentUsers > 0 ? activeConcurrentUsers / 20 : 0, 2);
+        const estimatedMaximumConcurrentUsers = Math.max(
+            50,
+            Math.round(cpuCores * 220 * (totalMemoryBytes / (1024 ** 3) / 2) * (topology === 'split-services' ? 1.2 : 1)),
+        );
+        const currentUtilizationPercent = trafficClamp(Math.max(
+            trafficNumber(cpuUsagePercent),
+            memoryUsagePercent,
+            trafficNumber(diskSnapshot.usagePercent),
+            trafficPercent(activeConcurrentUsers, estimatedMaximumConcurrentUsers),
+        ), 0, 100);
+        const capacityRemainingUsers = Math.max(0, estimatedMaximumConcurrentUsers - activeConcurrentUsers);
+        const forecastGrowth = Math.max(0.08, Math.min(0.45, monthlyActiveUsers > 0 ? activeConcurrentUsers / Math.max(1, monthlyActiveUsers) : 0.12));
+        const forecastWindows = [1, 3, 6, 12].map((months) => {
+            const multiplier = Math.pow(1 + forecastGrowth, months);
+            const estimatedConcurrentUsers = Math.max(activeConcurrentUsers, Math.round(Math.max(1, activeConcurrentUsers || onlineUsers || 1) * multiplier));
+            return {
+                months,
+                estimatedConcurrentUsers,
+                estimatedStorageBytes: Math.round(trafficNumber(localUploadBytes) * Math.pow(1.08, months)),
+                estimatedBandwidthBytes: networkSnapshot.rxBytes !== null && networkSnapshot.txBytes !== null
+                    ? Math.round((trafficNumber(networkSnapshot.rxBytes) + trafficNumber(networkSnapshot.txBytes)) * Math.pow(1.05, months))
+                    : null,
+                scalingRequired: estimatedConcurrentUsers > estimatedMaximumConcurrentUsers * 0.8,
+            };
+        });
+        const health = [
+            {
+                label: 'Server',
+                status: currentUtilizationPercent >= 85 ? 'warning' : 'healthy',
+                detail: `${currentUtilizationPercent}% peak utilization`,
+            },
+            {
+                label: 'Database',
+                status: trafficNumber(dbSessionRow.total_sessions) >= 80 ? 'warning' : 'healthy',
+                detail: `${trafficNumber(dbSessionRow.active_queries)} active queries / ${trafficNumber(dbSessionRow.total_sessions)} sessions`,
+            },
+            {
+                label: 'Presence',
+                status: hasPresence ? 'online' : 'warning',
+                detail: hasPresence ? `${onlineUsers} online users detected` : 'chat_presence table is not available yet',
+            },
+        ];
+        const alerts = [
+            ...(memoryUsagePercent >= 85 ? [{ severity: 'critical', title: 'memory_high', message: `Memory usage is ${memoryUsagePercent}% and exceeds the safe threshold.` }] : []),
+            ...(trafficNumber(diskSnapshot.usagePercent) >= 85 ? [{ severity: 'critical', title: 'disk_high', message: `Disk usage is ${diskSnapshot.usagePercent}% and exceeds the safe threshold.` }] : []),
+            ...(!hasPresence ? [{ severity: 'warning', title: 'presence_missing', message: 'Live user presence table was not found, so concurrent users are estimated as zero.' }] : []),
+        ];
+        const recommendations = [];
+        if (memoryUsagePercent >= 75) recommendations.push('Increase memory or split worker-heavy services into separate containers.');
+        if (trafficNumber(diskSnapshot.usagePercent) >= 75) recommendations.push('Move uploads and media to object storage/CDN to reduce local disk pressure.');
+        if (topology === 'single-server') recommendations.push('Prepare horizontal scaling by separating app, admin, workers, cache, and database responsibilities.');
+        if (recommendations.length === 0) recommendations.push('Current operational signals are within safe bounds. Continue monitoring forecast windows for upcoming scale points.');
+        const recentUserRows = recentUsers.rows.map((user) => ({
+            userId: user.user_id,
+            username: user.username,
+            fullName: user.full_name,
+            userType: user.user_type,
+            lastSeenAt: user.last_seen_at,
+            secondsAgo: trafficNumber(user.seconds_ago, 999),
+            status: trafficNumber(user.seconds_ago, 999) <= 20 ? 'active' : trafficNumber(user.seconds_ago, 999) <= 60 ? 'online' : 'idle',
+        }));
 
         res.json({
             success: true,
             generatedAt: new Date().toISOString(),
-            windowSeconds: 20,
-            activeConcurrentUsers,
-            onlineUsers,
-            idleUsers: Number(row.idle_users || 0),
-            dailyActiveUsers: Number(row.daily_active_users || 0),
-            totalTrackedUsers: Number(row.total_tracked_users || 0),
-            latestSeenAt: row.latest_seen_at,
-            requestsPerSecond: activeConcurrentUsers > 0 ? Number((activeConcurrentUsers / 20).toFixed(2)) : 0,
-            recentUsers: recentUsers.rows.map((user) => ({
-                userId: user.user_id,
-                username: user.username,
-                fullName: user.full_name,
-                userType: user.user_type,
-                lastSeenAt: user.last_seen_at,
-                secondsAgo: Number(user.seconds_ago || 0),
-                status: Number(user.seconds_ago || 999) <= 20 ? 'active' : Number(user.seconds_ago || 999) <= 60 ? 'online' : 'idle',
-            })),
+            overview: {
+                hostingEnvironment: detectHostingEnvironment(),
+                topology,
+                separateDatabase: Boolean(process.env.DB_HOST && !/localhost|127\.0\.0\.1/i.test(String(process.env.DB_HOST))),
+                separateStorage: Boolean(process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET),
+                objectStorageConfigured: Boolean(process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET),
+                redisConfigured: Boolean(process.env.REDIS_URL || process.env.REDIS_HOST),
+                server: {
+                    cpuCores,
+                    cpuUsagePercent,
+                    totalMemoryBytes,
+                    usedMemoryBytes,
+                    memoryUsagePercent,
+                    disk: diskSnapshot,
+                },
+                database: {
+                    activeConnections: trafficNumber(dbRow.active_connections),
+                    activeQueries: trafficNumber(dbSessionRow.active_queries),
+                    totalSessions: trafficNumber(dbSessionRow.total_sessions),
+                    sizeBytes: trafficNumber(dbRow.database_size_bytes),
+                    cacheHitRatio,
+                },
+                storage: {
+                    localUploadBytes,
+                },
+            },
+            liveTraffic: {
+                windowSeconds: 20,
+                activeConcurrentUsers,
+                onlineUsers,
+                idleUsers: trafficNumber(row.idle_users),
+                dailyActiveUsers,
+                monthlyActiveUsers,
+                totalTrackedUsers: trafficNumber(row.total_tracked_users),
+                latestSeenAt: row.latest_seen_at,
+                requestsPerSecond,
+                apiResponseTimes: {
+                    averageMs: 0,
+                    maxMs: 0,
+                },
+                bandwidth: {
+                    ingressBytes: networkSnapshot.rxBytes,
+                    egressBytes: networkSnapshot.txBytes,
+                },
+                activityWindowMs: 20000,
+                connectedSocketUsers: onlineUsers,
+                recentUsers: recentUserRows,
+            },
+            performance: {
+                health,
+                slowRoutes: [],
+            },
+            scalability: {
+                estimatedMaximumConcurrentUsers,
+                capacityRemainingUsers,
+                currentUtilizationPercent,
+                scaleStatus: currentUtilizationPercent >= 80 ? 'scale soon' : 'stable',
+                bottlenecks: [
+                    { label: 'CPU', value: trafficNumber(cpuUsagePercent) },
+                    { label: 'Memory', value: memoryUsagePercent },
+                    { label: 'Disk', value: trafficNumber(diskSnapshot.usagePercent) },
+                ].sort((left, right) => right.value - left.value).slice(0, 3),
+            },
+            forecast: {
+                growthRate: forecastGrowth,
+                windows: forecastWindows,
+            },
+            widgets: {
+                cpu: [{ label: 'now', value: trafficNumber(cpuUsagePercent) }],
+                memory: [{ label: 'now', value: memoryUsagePercent }],
+                performance: [
+                    { label: 'rps', value: requestsPerSecond },
+                    { label: 'online', value: onlineUsers },
+                    { label: 'active', value: activeConcurrentUsers },
+                ],
+                trafficForecast: forecastWindows.map((item) => ({ label: `${item.months}m`, value: item.estimatedConcurrentUsers })),
+            },
+            alerts: {
+                items: alerts,
+                recommendations,
+            },
+            recentUsers: recentUserRows,
+            note: hasPresence ? undefined : 'chat_presence table is not available yet',
         });
     } catch (err) {
         console.error('/admin/traffic-analysis error:', err);
