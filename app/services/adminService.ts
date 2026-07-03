@@ -1130,9 +1130,9 @@ export const adminService = {
         return result;
     },
 
-    // ── Referrals ──────────────────────────────────────────────────────────
+    // â”€â”€ Referrals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    // ── Customization: Referral Level Settings ────────────────────────────────
+    // â”€â”€ Customization: Referral Level Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     fetchRefLevels: async () => {
         const response = await fetch(`${API_URL}/admin/customization/referral-level-settings`, { headers: getHeaders() });
         const result = await safeJson(response);
@@ -1176,7 +1176,7 @@ export const adminService = {
         return result;
     },
 
-    // ── Customization: Referral Commission Pool Settings ──────────────────────
+    // â”€â”€ Customization: Referral Commission Pool Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     fetchRefCommissionSettings: async () => {
         const response = await fetch(`${API_URL}/admin/customization/referral-commission-settings`, { headers: getHeaders() });
         const result = await safeJson(response);
@@ -1193,7 +1193,7 @@ export const adminService = {
         return result;
     },
 
-    // ── Legacy referral settings (kept for backward compat) ──────────────────
+    // â”€â”€ Legacy referral settings (kept for backward compat) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     fetchReferralSettings: async () => {
         const response = await fetch(`${API_URL}/admin/referrals/settings`, { headers: getHeaders() });
         const result = await safeJson(response);
@@ -1286,6 +1286,15 @@ export const adminService = {
         );
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch commission payouts');
+        return result;
+    },
+    fetchTrafficAnalysis: async () => {
+        const response = await fetch(`${API_URL}/admin/traffic-analysis`, {
+            headers: getHeaders(),
+            cache: 'no-store',
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch traffic analysis');
         return result;
     },
 

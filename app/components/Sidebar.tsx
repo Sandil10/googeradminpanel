@@ -19,6 +19,7 @@ const menuItems: SidebarItem[] = [
     { name: "Dashboard", icon: "grid", href: "/admin" },
     { name: "Users", icon: "people", href: "/admin/users/all" },
     { name: "Reports", icon: "flag", href: "/admin/reports" },
+    { name: "Traffic Analysis", icon: "pulse", href: "/admin/traffic-analysis" },
     { name: "Products", icon: "bag-handle", href: "/admin/products/all" },
     { name: "Ads", icon: "megaphone", href: "/admin/products/ads" },
     { name: "Upload Control", icon: "cloud-upload", href: "/admin/products/ads/upload-control" },

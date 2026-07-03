@@ -31,7 +31,7 @@ router.get('/stats', async (req, res) => {
             pool.query("SELECT COUNT(*) FROM market WHERE status IN ('pending', 'reviewing')"),
             pool.query('SELECT SUM(wallet_balance) FROM users'),
             pool.query("SELECT COALESCE(SUM(commission), 0) AS sum FROM wallet_transfers WHERE status = 'accepted'"),
-            // Coin collect commissions come from ad_coin_collections — the authoritative source
+            // Coin collect commissions come from ad_coin_collections â€” the authoritative source
             pool.query("SELECT COALESCE(SUM(commission), 0) AS sum FROM ad_coin_collections"),
             // Profile promote ad payments stored in wallet_transfers with type = 'profile_promote'
             pool.query("SELECT COALESCE(SUM(commission), 0) AS sum FROM wallet_transfers WHERE status = 'accepted' AND type = 'profile_promote'"),
@@ -112,7 +112,7 @@ router.get('/recent-activity', async (req, res) => {
 });
 
 
-// Coin collect detail — which ads generated Googer coin income
+// Coin collect detail â€” which ads generated Googer coin income
 router.get('/coin-collect-detail', async (req, res) => {
     try {
         const result = await pool.query(`
@@ -638,7 +638,7 @@ router.post('/transfer-googer-to-admin', async (req, res) => {
     }
 });
 
-// All wallet_transfers — every row across all users
+// All wallet_transfers â€” every row across all users
 router.get('/all-transactions', async (req, res) => {
     try {
         const result = await pool.query(`
@@ -664,4 +664,78 @@ router.get('/all-transactions', async (req, res) => {
     }
 });
 
+router.get('/traffic-analysis', async (req, res) => {
+    try {
+        const presenceTable = await pool.query("SELECT to_regclass('public.chat_presence') AS table_name");
+        if (!presenceTable.rows[0]?.table_name) {
+            return res.json({
+                success: true,
+                generatedAt: new Date().toISOString(),
+                windowSeconds: 20,
+                activeConcurrentUsers: 0,
+                onlineUsers: 0,
+                idleUsers: 0,
+                dailyActiveUsers: 0,
+                totalTrackedUsers: 0,
+                recentUsers: [],
+                note: 'chat_presence table is not available yet',
+            });
+        }
+
+        const [summary, recentUsers] = await Promise.all([
+            pool.query(`
+                SELECT
+                    COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '20 seconds')::int AS active_concurrent_users,
+                    COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '60 seconds')::int AS online_users,
+                    COUNT(*) FILTER (WHERE last_seen_at < NOW() - INTERVAL '60 seconds' AND last_seen_at >= NOW() - INTERVAL '5 minutes')::int AS idle_users,
+                    COUNT(*) FILTER (WHERE last_seen_at >= date_trunc('day', NOW()))::int AS daily_active_users,
+                    COUNT(*)::int AS total_tracked_users,
+                    MAX(last_seen_at) AS latest_seen_at
+                FROM chat_presence
+            `),
+            pool.query(`
+                SELECT
+                    cp.user_id,
+                    u.username,
+                    u.full_name,
+                    u.user_type,
+                    cp.last_seen_at,
+                    GREATEST(0, EXTRACT(EPOCH FROM (NOW() - cp.last_seen_at))::int) AS seconds_ago
+                FROM chat_presence cp
+                LEFT JOIN users u ON u.id = cp.user_id
+                ORDER BY cp.last_seen_at DESC
+                LIMIT 12
+            `),
+        ]);
+
+        const row = summary.rows[0] || {};
+        const activeConcurrentUsers = Number(row.active_concurrent_users || 0);
+        const onlineUsers = Number(row.online_users || 0);
+
+        res.json({
+            success: true,
+            generatedAt: new Date().toISOString(),
+            windowSeconds: 20,
+            activeConcurrentUsers,
+            onlineUsers,
+            idleUsers: Number(row.idle_users || 0),
+            dailyActiveUsers: Number(row.daily_active_users || 0),
+            totalTrackedUsers: Number(row.total_tracked_users || 0),
+            latestSeenAt: row.latest_seen_at,
+            requestsPerSecond: activeConcurrentUsers > 0 ? Number((activeConcurrentUsers / 20).toFixed(2)) : 0,
+            recentUsers: recentUsers.rows.map((user) => ({
+                userId: user.user_id,
+                username: user.username,
+                fullName: user.full_name,
+                userType: user.user_type,
+                lastSeenAt: user.last_seen_at,
+                secondsAgo: Number(user.seconds_ago || 0),
+                status: Number(user.seconds_ago || 999) <= 20 ? 'active' : Number(user.seconds_ago || 999) <= 60 ? 'online' : 'idle',
+            })),
+        });
+    } catch (err) {
+        console.error('/admin/traffic-analysis error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
 module.exports = router;
