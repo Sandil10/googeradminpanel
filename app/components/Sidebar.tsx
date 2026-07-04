@@ -1,0 +1,284 @@
+"use client";
+
+import Link from "next/link";
+import Image from "next/image";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
+import { authService } from "../services/authService";
+import IonIcon from "./IonIcon";
+import { displayName as getDisplayName } from "../utils/displayName";
+import { toManagedMediaUrl } from "../utils/mediaUrl";
+
+type SidebarItem = {
+    name: string;
+    icon: string;
+    href?: string;
+};
+
+const menuItems: SidebarItem[] = [
+    { name: "Dashboard", icon: "grid", href: "/admin" },
+    { name: "Users", icon: "people", href: "/admin/users/all" },
+    { name: "Reports", icon: "flag", href: "/admin/reports" },
+    { name: "Traffic Analysis", icon: "pulse", href: "/admin/traffic-analysis" },
+    { name: "Products", icon: "bag-handle", href: "/admin/products/all" },
+    { name: "Ads", icon: "megaphone", href: "/admin/products/ads" },
+    { name: "Upload Control", icon: "cloud-upload", href: "/admin/products/ads/upload-control" },
+    { name: "Transaction History", icon: "receipt", href: "/admin/products/ads/history" },
+    { name: "Product Status", icon: "stats-chart", href: "/admin/products/ads/product-status" },
+    { name: "Posts", icon: "document-text", href: "/admin/posts" },
+    { name: "Referrals", icon: "git-network", href: "/admin/referrals" },
+    { name: "Percentage Customization", icon: "options", href: "/admin/customization" },
+    { name: "Verification", icon: "checkmark-circle", href: "/admin/verification" },
+    { name: "Subscription", icon: "card", href: "/admin/subscription" },
+    { name: "Top-up / Requests", icon: "cash", href: "/admin/wallet/topup" },
+    { name: "Withdrawal", icon: "arrow-up-circle", href: "/admin/wallet/withdrawal" },
+    { name: "Wallet", icon: "wallet", href: "/admin/wallet/main" },
+    { name: "Chat & Notifications", icon: "notifications", href: "/admin/notifications" },
+];
+
+interface SidebarProps {
+    isCollapsed: boolean;
+    onToggle: () => void;
+    isMobileOpen?: boolean;
+    onCloseMobile?: () => void;
+}
+
+export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMobile }: SidebarProps) {
+    const pathname = usePathname();
+    const router = useRouter();
+    const [showUserMenu, setShowUserMenu] = useState(false);
+    const [user, setUser] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const prefetchHref = useCallback((href?: string) => {
+        if (!href) return;
+        router.prefetch(href);
+    }, [router]);
+
+    useEffect(() => {
+        const fetchUser = async () => {
+            try {
+                const profile = await authService.getProfile();
+                setUser(profile);
+            } catch (error: any) {
+                if (error.message.includes('Invalid') || error.message.includes('expired') || error.message.includes('401')) {
+                    console.warn("Session invalid - clearing storage");
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                }
+
+                if (error.message === 'No session found') {
+                    console.warn("User session not found - using guest mode");
+                } else {
+                    console.error("Error fetching user:", error);
+                }
+                // Fallback for dev if needed
+                setUser({ username: 'admin', full_name: 'Administrator' });
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchUser();
+    }, []);
+
+    const handleLogout = () => {
+        try { localStorage.removeItem("token"); } catch (_) {}
+        try { localStorage.removeItem("user"); } catch (_) {}
+        window.location.href = "/";
+    };
+
+    const profileImage = (user?.profile_picture)
+        ? toManagedMediaUrl(user.profile_picture)
+        : (user ? `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || user.username || 'User')}&size=200&background=random` : "");
+
+    return (
+        <aside
+            className={`fixed left-0 top-0 z-50 flex h-screen max-w-[88vw] flex-col border-r border-[#1a1a1a] bg-black text-white transition-all duration-300 md:translate-x-0
+                ${isMobileOpen ? "translate-x-0 w-64 shadow-[20px_0_60px_rgba(0,0,0,0.8)]" : "-translate-x-full w-64"}
+                ${isCollapsed ? "md:w-20" : "md:w-64"}
+            `}
+        >
+            {/* Brand */}
+            <div className="p-6 relative flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                    <div className="relative w-8 h-8 shrink-0">
+                        <Image
+                            src="/assets/images/googer.png"
+                            alt="Logo"
+                            fill
+                            sizes="32px"
+                            className="object-contain"
+                        />
+                    </div>
+                    {(!isCollapsed || isMobileOpen) && (
+                        <div className="flex flex-col truncate">
+                            <h1 className="text-lg font-bold tracking-tight text-white leading-none">Googer</h1>
+                            <span className="text-[10px] text-white font-bold uppercase tracking-widest mt-1">Admin Panel</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Mobile Close Button */}
+                <button
+                    onClick={onCloseMobile}
+                    className="md:hidden p-2 text-slate-400 hover:text-white"
+                >
+                    <IonIcon name="close-outline" className="text-2xl" />
+                </button>
+
+                {/* Collapse Toggle Button (Desktop only) */}
+                <button
+                    onClick={onToggle}
+                    className="hidden md:flex absolute -right-3.5 top-8 w-7 h-7 bg-[#1a1a1a] text-white rounded-full items-center justify-center border border-[#333] hover:bg-white hover:text-black transition-all z-50 shadow-md"
+                >
+                    <IonIcon name={isCollapsed ? "chevron-forward-outline" : "chevron-back-outline"} className="text-xs" />
+                </button>
+            </div>
+
+            {/* Navigation */}
+            <nav className="custom-scrollbar flex-1 space-y-1 overflow-y-auto px-3 py-4 sm:px-4">
+                {menuItems.map((item) => {
+                    const isActive = pathname === item.href;
+
+                    return (
+                        <div key={item.name} className="flex flex-col">
+                            <Link
+                                href={item.href || "#"}
+                                onMouseEnter={() => prefetchHref(item.href)}
+                                onFocus={() => prefetchHref(item.href)}
+                                onTouchStart={() => prefetchHref(item.href)}
+                                onClick={onCloseMobile}
+                                className={`flex items-center gap-4 px-3 py-2.5 rounded-lg transition-all group ${isActive ? "bg-white text-black shadow-lg shadow-white/10" : "text-slate-400 hover:bg-white/5 hover:text-white"
+                                    } ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
+                                title={isCollapsed ? item.name : ""}
+                            >
+                                <div className="text-xl w-6 flex justify-center shrink-0">
+                                    <IonIcon name={(item.icon || "list") + "-outline"} />
+                                </div>
+                                {(!isCollapsed || isMobileOpen) && (
+                                    <span className="font-medium text-sm transition-opacity duration-200">{item.name}</span>
+                                )}
+                            </Link>
+                        </div>
+                    );
+                })}
+            </nav>
+
+
+            {/* User Profile Footer */}
+            <div className="p-4 border-t border-[#1a1a1a] mt-auto relative">
+                {/* User Menu Popup */}
+                {showUserMenu && (
+                    <>
+                        {/* Backdrop */}
+                        <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setShowUserMenu(false)}
+                        ></div>
+
+                        {/* Popup Card */}
+                        <div className="absolute bottom-full left-4 right-4 mb-2 bg-[#09090b] rounded-2xl shadow-2xl border border-[#1a1a1a] z-50 overflow-hidden">
+                            {/* Rainbow gradient top bar */}
+                            <div className="h-14 bg-gradient-to-r from-rose-500 via-amber-400 via-emerald-400 via-blue-500 to-violet-600" />
+
+                            {/* User Info */}
+                            <div className="p-4 -mt-7">
+                                <div className="flex items-end gap-3 mb-4">
+                                    <div className="relative w-14 h-14 rounded-full overflow-hidden border-[3px] border-[#09090b] shrink-0 bg-gray-800">
+                                        {user && profileImage && (
+                                            <Image
+                                                unoptimized
+                                                src={profileImage}
+                                                alt={user.full_name || user.username || "User"}
+                                                fill
+                                                className="object-cover"
+                                            />
+                                        )}
+                                    </div>
+                                    <div className="flex-1 min-w-0 pb-1">
+                                        <h3 className="font-black text-white text-[13px] truncate leading-tight">
+                                            {getDisplayName(user?.user_type, user?.full_name, user?.username) || "User"}
+                                        </h3>
+                                        <p className="text-[10px] text-white/40 truncate">@{user?.username || "user"}</p>
+                                    </div>
+                                </div>
+
+                                {/* Menu Items */}
+                                <div className="space-y-1">
+                                    <Link
+                                        href="/dashboard/profile"
+                                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-sm text-white"
+                                        onClick={() => setShowUserMenu(false)}
+                                    >
+                                        <span className="text-lg">
+                                            <IonIcon name="person-outline" />
+                                        </span>
+                                        <span>Profile</span>
+                                    </Link>
+                                    <Link
+                                        href="/dashboard/wallet"
+                                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-sm text-white"
+                                        onClick={() => setShowUserMenu(false)}
+                                    >
+                                        <span className="text-lg">
+                                            <IonIcon name="wallet-outline" />
+                                        </span>
+                                        <span>Wallet</span>
+                                    </Link>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-sm text-red-400"
+                                    >
+                                        <span className="text-lg">
+                                            <IonIcon name="log-out-outline" />
+                                        </span>
+                                        <span>Log Out</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                <div
+                    className={`flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors ${(isCollapsed && !isMobileOpen) ? "justify-center" : ""}`}
+                    onClick={() => (!isCollapsed || isMobileOpen) && setShowUserMenu(!showUserMenu)}
+                >
+                    <div className="relative w-10 h-10 rounded-full overflow-hidden border border-gray-600 shrink-0 bg-gray-800">
+                        {user && profileImage && (
+                            profileImage.startsWith('data:') ? (
+                                <img
+                                    src={profileImage}
+                                    alt="Profile"
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <Image
+                                    unoptimized
+                                    src={profileImage}
+                                    alt={user.full_name || user.username || "User"}
+                                    fill
+                                    sizes="40px"
+                                    className="object-cover"
+                                />
+                            )
+                        )}
+                    </div>
+                    {(!isCollapsed || isMobileOpen) && (
+                        <>
+                            <div className="flex-1 min-w-0 transition-opacity duration-200">
+                                <p className="text-sm font-semibold truncate">
+                                    {getDisplayName(user?.user_type, user?.full_name, user?.username) || "Loading..."}
+                                </p>
+                                <p className="text-xs text-gray-400 truncate">@{user?.username || "user"}</p>
+                            </div>
+                            <div className={`text-gray-400 transition-transform duration-200 ${showUserMenu ? "rotate-180" : ""}`}>
+                                <IonIcon name="chevron-up-outline" />
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </aside>
+    );
+}
