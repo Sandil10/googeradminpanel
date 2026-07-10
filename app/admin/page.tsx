@@ -64,6 +64,11 @@ export default function AdminDashboard() {
     useEffect(() => {
         if (!authService.isAuthenticated()) {
             redirectToLogin();
+            return;
+        }
+        const storedUser = authService.getStoredUser();
+        if (storedUser) {
+            setMainWalletBalance(parseFloat(String(storedUser?.wallet_balance || 0)) || 0);
         }
     }, [redirectToLogin]);
 
@@ -74,14 +79,41 @@ export default function AdminDashboard() {
         }
         try {
             if (!isPolling) setLoading(true);
-            const [statsData, activityData, profile] = await Promise.all([
+            const [statsResult, activityResult, profileResult] = await Promise.allSettled([
                 adminService.fetchStats(),
-                adminService.fetchRecentActivity().catch(() => []),
+                adminService.fetchRecentActivity(),
                 authService.getProfile(),
             ]);
-            setStats(statsData);
-            setActivity(activityData || []);
-            setMainWalletBalance(parseFloat(String(profile?.wallet_balance || 0)) || 0);
+
+            if (statsResult.status === "fulfilled") {
+                setStats(statsResult.value);
+            }
+
+            if (activityResult.status === "fulfilled") {
+                setActivity(activityResult.value || []);
+            }
+
+            if (profileResult.status === "fulfilled") {
+                setMainWalletBalance(parseFloat(String(profileResult.value?.wallet_balance || 0)) || 0);
+            }
+
+            const rejected = [statsResult, activityResult, profileResult].find((result) => result.status === "rejected");
+            if (rejected?.status === "rejected") {
+                const error = rejected.reason;
+                const message = String(error?.message || "").toLowerCase();
+                if (
+                    message.includes('authentication') ||
+                    message.includes('no token') ||
+                    message.includes('admin access') ||
+                    message.includes('unauthorized') ||
+                    message.includes('forbidden') ||
+                    message.includes('session expired')
+                ) {
+                    throw error;
+                }
+                console.warn("Dashboard partial load warning:", error);
+            }
+
             setLastUpdated(new Date());
         } catch (err: any) {
             const msg = (err?.message || '').toLowerCase();

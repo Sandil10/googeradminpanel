@@ -82,6 +82,20 @@ const FORMAT: Record<LimitKey, (label: string, num: string) => string> = {
 };
 
 const toInt = (v: string) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+const toNumber = (v: string | number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+};
+const compactNumber = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+const videoLimitTotalSeconds = (value: string | number) => Math.max(0, Math.round(toNumber(value) * 60));
+const formatVideoLimit = (value: string | number) => {
+    const totalSeconds = videoLimitTotalSeconds(value);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0 && seconds > 0) return `${minutes} min ${seconds} sec`;
+    if (minutes > 0) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+    return `${seconds} second${seconds === 1 ? '' : 's'}`;
+};
 
 function buildFeatures(limits: Limits, labels: Labels, verified_tick: boolean): string[] {
     const f: string[] = [];
@@ -96,8 +110,8 @@ function buildFeatures(limits: Limits, labels: Labels, verified_tick: boolean): 
     if (toInt(limits.content_daily_upload_limit) > 0) {
         f.push(`${labels.content_daily_upload_limit || DEFAULT_LABELS.content_daily_upload_limit} - ${limits.content_daily_upload_limit}/day`);
     }
-    if (toInt(limits.content_video_limit_minutes) > 0) {
-        f.push(`${labels.content_video_limit_minutes || DEFAULT_LABELS.content_video_limit_minutes} - ${limits.content_video_limit_minutes} min`);
+    if (videoLimitTotalSeconds(limits.content_video_limit_minutes) > 0) {
+        f.push(`${labels.content_video_limit_minutes || DEFAULT_LABELS.content_video_limit_minutes} - ${formatVideoLimit(limits.content_video_limit_minutes)}`);
     }
     if (limits.free_promo_code) f.push(labels.free_promo_code || DEFAULT_LABELS.free_promo_code);
     return f;
@@ -305,6 +319,16 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
 
     const set = <K extends keyof FormData>(key: K, value: FormData[K]) => setForm(f => ({ ...f, [key]: value }));
     const setL = <K extends keyof Limits>(key: K, value: Limits[K]) => setLimits(l => ({ ...l, [key]: value }));
+    const currentVideoLimitSeconds = videoLimitTotalSeconds(limits.content_video_limit_minutes);
+    const currentVideoLimitMinutesPart = Math.floor(currentVideoLimitSeconds / 60);
+    const currentVideoLimitSecondsPart = currentVideoLimitSeconds % 60;
+    const setVideoLimitPart = (part: 'minutes' | 'seconds', rawValue: string) => {
+        const normalizedValue = Math.max(0, parseInt(rawValue || '0', 10) || 0);
+        const nextSeconds = part === 'minutes'
+            ? (normalizedValue * 60) + currentVideoLimitSecondsPart
+            : (currentVideoLimitMinutesPart * 60) + Math.min(59, normalizedValue);
+        setL('content_video_limit_minutes', compactNumber(nextSeconds / 60));
+    };
 
     const inputCls = "w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-white/30 placeholder-gray-700";
 
@@ -345,7 +369,7 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
                 product_upload_limit: toInt(limits.product_upload_limit),
                 content_upload_limit: toInt(limits.content_upload_limit),
                 content_daily_upload_limit: toInt(limits.content_daily_upload_limit),
-                content_video_limit_minutes: toInt(limits.content_video_limit_minutes),
+                content_video_limit_minutes: toNumber(limits.content_video_limit_minutes),
                 content_expiry_value: limits.content_expiry_unit === 'unlimited' ? 0 : toInt(limits.content_expiry_value),
                 content_expiry_unit: limits.content_expiry_unit,
                 ad_videos:            toInt(limits.ad_videos),
@@ -999,17 +1023,36 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
                                         <IonIcon name={editingFields.has('content_video_limit_minutes') ? 'checkmark-outline' : 'pencil-outline'} className="text-sm" />
                                     </button>
                                 </span>
-                                <div className="flex items-center gap-2 bg-[#111] border border-[#2a2a2a] rounded-xl px-3 py-2.5">
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    <div className="flex items-center gap-2 bg-[#111] border border-[#2a2a2a] rounded-xl px-3 py-2.5">
                                     <IonIcon name="time-outline" className="text-base text-gray-400 shrink-0" />
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={limits.content_video_limit_minutes}
-                                        onChange={e => setL('content_video_limit_minutes', e.target.value)}
-                                        className="flex-1 bg-transparent text-sm text-white focus:outline-none min-w-0"
+                                        <input
+                                            type="number"
+                                            min="0"
+                                        value={currentVideoLimitMinutesPart === 0 ? '' : currentVideoLimitMinutesPart}
+                                        onChange={e => setVideoLimitPart('minutes', e.target.value)}
+                                            className="flex-1 bg-transparent text-sm text-white focus:outline-none min-w-0"
                                         placeholder={isDefault ? '1' : '5'}
-                                    />
+                                        />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">min</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-[#111] border border-[#2a2a2a] rounded-xl px-3 py-2.5">
+                                        <IonIcon name="timer-outline" className="text-base text-gray-400 shrink-0" />
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="59"
+                                            value={currentVideoLimitSecondsPart === 0 ? '' : currentVideoLimitSecondsPart}
+                                            onChange={e => setVideoLimitPart('seconds', e.target.value)}
+                                            className="flex-1 bg-transparent text-sm text-white focus:outline-none min-w-0"
+                                            placeholder="0"
+                                        />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">sec</span>
+                                    </div>
                                 </div>
+                                <p className="text-[10px] font-semibold leading-4 text-gray-600">
+                                    Saved as {formatVideoLimit(limits.content_video_limit_minutes)}. Users can upload up to this duration before trim/upgrade shows.
+                                </p>
                             </label>
 
                             <label className="space-y-1.5 md:col-span-2">

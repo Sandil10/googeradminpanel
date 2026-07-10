@@ -1,16 +1,38 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
+const { isAdminRole } = require('../../shared/contracts/userRoles');
 
 const PERMANENT_DEACTIVATION_MESSAGE = 'Your account is permanently deactivated.';
 
-const ensurePermanentDeactivationColumns = async () => {
+let permanentDeactivationSchemaReadyPromise = null;
+
+const runPermanentDeactivationSchemaReady = async () => {
     await pool.query(`ALTER TABLE users ALTER COLUMN status TYPE VARCHAR(40)`).catch(() => {});
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deactivated BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS self_deleted_at TIMESTAMP DEFAULT NULL`).catch(() => {});
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS permanent_deactivated_at TIMESTAMP DEFAULT NULL`).catch(() => {});
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS appeal_status VARCHAR(30) DEFAULT NULL`).catch(() => {});
 };
+
+const ensurePermanentDeactivationColumns = async () => {
+    if (!permanentDeactivationSchemaReadyPromise) {
+        permanentDeactivationSchemaReadyPromise = runPermanentDeactivationSchemaReady().catch((error) => {
+            permanentDeactivationSchemaReadyPromise = null;
+            throw error;
+        });
+    }
+
+    return permanentDeactivationSchemaReadyPromise;
+};
+
+const warmPermanentDeactivationSchema = () => {
+    ensurePermanentDeactivationColumns().catch((error) => {
+        console.warn('Permanent deactivation schema warm-up failed:', error?.message || error);
+    });
+};
+
+setTimeout(warmPermanentDeactivationSchema, 0);
 
 const isPermanentlyDeactivatedUser = (user) => {
     const status = String(user?.status || '').toLowerCase();
@@ -76,7 +98,6 @@ const validatePassword = (password) => {
 exports.register = async (req, res) => {
     try {
         const { username, fullName, email, password, isSeller, referralCode } = req.body; // Accept referralCode
-        await ensurePermanentDeactivationColumns();
 
         // Validate required fields
         if (!username || !fullName || !email || !password) {
@@ -197,7 +218,13 @@ exports.register = async (req, res) => {
 
             // Create JWT token
             const token = jwt.sign(
-                { id: newUser.rows[0].id, userId: newUser.rows[0].user_id },
+                {
+                    id: newUser.rows[0].id,
+                    userId: newUser.rows[0].user_id,
+                    username: newUser.rows[0].username,
+                    email: newUser.rows[0].email,
+                    user_type: newUser.rows[0].user_type,
+                },
                 process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET,
                 { expiresIn: process.env.JWT_EXPIRE || '30d' }
             );
@@ -238,7 +265,6 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        await ensurePermanentDeactivationColumns();
 
         if (!email || !password) {
             return res.status(400).json({ success: false, message: 'Please provide email and password' });
@@ -273,7 +299,13 @@ exports.login = async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: user.rows[0].id, userId: user.rows[0].user_id },
+            {
+                id: user.rows[0].id,
+                userId: user.rows[0].user_id,
+                username: user.rows[0].username,
+                email: user.rows[0].email,
+                user_type: user.rows[0].user_type,
+            },
             process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRE || '30d' }
         );
@@ -366,6 +398,25 @@ exports.getProfile = async (req, res) => {
 
     } catch (error) {
         console.error('Get profile error:', error);
+        if (isAdminRole(req.user?.user_type)) {
+            return res.status(200).json({
+                success: true,
+                user: {
+                    id: req.user?.id || null,
+                    user_id: req.user?.userId || null,
+                    username: req.user?.username || 'admin',
+                    full_name: 'Googer Support',
+                    email: req.user?.email || null,
+                    profile_picture: null,
+                    bio: null,
+                    referral_code: null,
+                    wallet_balance: 0,
+                    balance: 0,
+                    created_at: null,
+                    user_type: req.user?.user_type || 'admin',
+                }
+            });
+        }
         res.status(500).json({ success: false, message: 'Server error' });
     }
 };

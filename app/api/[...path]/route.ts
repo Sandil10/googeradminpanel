@@ -27,7 +27,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     const search = request.nextUrl.search || '';
     const backend = resolveRemoteServiceUrl({
         envVar: 'BACKEND_URL',
-        fallbackUrl: 'http://localhost:3002',
+        fallbackUrl: 'http://127.0.0.1:3001',
         serviceName: 'googer-admin-api',
         reason: 'admin app api proxy',
     });

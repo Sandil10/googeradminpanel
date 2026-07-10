@@ -15,19 +15,36 @@ const DROP_RESPONSE_HEADERS = new Set([
     'transfer-encoding', 'connection', 'keep-alive', 'content-encoding', 'content-length',
 ]);
 
+const MAIN_BACKEND_FALLBACKS = [
+    'http://127.0.0.1:5000',
+    'http://localhost:5000',
+    'http://main-backend:5000',
+];
+
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
     const { path } = await context.params;
     const pathStr = Array.isArray(path) ? path.join('/') : path;
     const search = request.nextUrl.search || '';
-    const backend = resolveRemoteServiceUrl({
+    const resolvedBackend = resolveRemoteServiceUrl({
         envVar: 'GOOGER_MAIN_API_URL',
-        // Use the Docker service name as the final fallback so this still works
-        // when the App Router runtime can't see the injected env var.
-        fallbackUrl: process.env.MAIN_BACKEND_URL || 'http://main-backend:5000',
+        // Match the Next rewrite fallback used by the admin app in local/recovery
+        // environments, then keep the Docker hostname as a later fallback.
+        fallbackUrl: process.env.MAIN_BACKEND_URL || MAIN_BACKEND_FALLBACKS[0],
         serviceName: 'googer-main-api',
         reason: 'admin googer-api proxy',
     });
-    const targetUrl = `${backend}/api/${pathStr}${search}`;
+    const backendCandidates = Array.from(
+        new Set(
+            [
+                resolvedBackend,
+                process.env.GOOGER_MAIN_API_URL,
+                process.env.MAIN_BACKEND_URL,
+                ...MAIN_BACKEND_FALLBACKS,
+            ]
+                .map((value) => String(value || '').trim().replace(/\/+$/, ''))
+                .filter(Boolean),
+        ),
+    );
 
     const forwardHeaders: Record<string, string> = {};
     request.headers.forEach((value, key) => {
@@ -44,33 +61,48 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
         try { body = await request.text(); } catch { body = undefined; }
     }
 
-    try {
-        const upstream = await fetch(targetUrl, {
-            method,
-            headers: forwardHeaders,
-            body: hasBody && body ? body : undefined,
-        });
+    let lastError: any = null;
 
-        const responseText = await upstream.text();
-        const responseHeaders: Record<string, string> = {};
-        upstream.headers.forEach((value, key) => {
-            if (!DROP_RESPONSE_HEADERS.has(key.toLowerCase())) {
-                responseHeaders[key] = value;
-            }
-        });
+    for (const backend of backendCandidates) {
+        const targetPath = pathStr.startsWith('uploads/')
+            ? `/${pathStr}`
+            : `/api/${pathStr}`;
+        const targetUrl = `${backend}${targetPath}${search}`;
+        try {
+            const upstream = await fetch(targetUrl, {
+                method,
+                headers: forwardHeaders,
+                body: hasBody && body ? body : undefined,
+            });
 
-        return new NextResponse(responseText, {
-            status: upstream.status,
-            statusText: upstream.statusText,
-            headers: responseHeaders,
-        });
-    } catch (err: any) {
-        console.error(`[Googer API Proxy] Failed to reach ${targetUrl}:`, err.message);
-        return NextResponse.json(
-            { message: `Main backend unreachable. Is the Express server running at ${backend}?` },
-            { status: 503 }
-        );
+            const responseBody = await upstream.arrayBuffer();
+            const responseHeaders: Record<string, string> = {};
+            upstream.headers.forEach((value, key) => {
+                if (!DROP_RESPONSE_HEADERS.has(key.toLowerCase())) {
+                    responseHeaders[key] = value;
+                }
+            });
+
+            responseHeaders['x-googer-api-upstream'] = backend;
+
+            return new NextResponse(responseBody, {
+                status: upstream.status,
+                statusText: upstream.statusText,
+                headers: responseHeaders,
+            });
+        } catch (err: any) {
+            lastError = err;
+            console.error(`[Googer API Proxy] Failed to reach ${targetUrl}:`, err.message);
+        }
     }
+
+    return NextResponse.json(
+        {
+            message: `Main backend unreachable. Tried: ${backendCandidates.join(', ')}`,
+            detail: lastError?.message || 'Unknown proxy error',
+        },
+        { status: 503 },
+    );
 }
 
 export const GET = proxy;

@@ -274,6 +274,42 @@ export const adminService = {
         return result || [];
     },
 
+    fetchGoogPostComments: async (postId: number) => {
+        const response = await fetch(`${MAIN_API_URL}/googs/${postId}/comments`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch post comments');
+        return result?.data || result || [];
+    },
+
+    fetchGoogPostLikes: async (postId: number) => {
+        const response = await fetch(`${MAIN_API_URL}/googs/${postId}/likes`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch post likes');
+        return result?.data || result || [];
+    },
+
+    fetchGoogPostShares: async (postId: number) => {
+        const response = await fetch(`${MAIN_API_URL}/googs/${postId}/shares`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch post shares');
+        return result?.data || result || [];
+    },
+
+    fetchGoogPostViews: async (postId: number) => {
+        const response = await fetch(`${MAIN_API_URL}/googs/${postId}/views`, {
+            headers: getHeaders()
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch post views');
+        return result?.data || result || [];
+    },
+
     deletePost: async (postId: number) => {
         const response = await fetch(`${API_URL}/posts/${postId}`, {
             method: 'DELETE',
@@ -796,6 +832,7 @@ export const adminService = {
         defaultContentAccessMode?: 'blurred' | 'unblurred';
         commissionTiers?: Array<{ min: number; max: number; commission: number }>;
         subscriptionCommissionTiers?: Array<{ min: number; max: number; commission: number }>;
+        flashCommissionTiers?: Array<{ min: number; max: number; commission: number }>;
     }) => {
         const response = await fetch(`${API_URL}/admin/customization/upload-control`, {
             method: 'PUT',
@@ -849,6 +886,46 @@ export const adminService = {
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to delete upload content');
         return result;
+    },
+
+    fetchUploadContentLikes: async (contentId: string) => {
+        const response = await fetch(`${MAIN_API_URL}/upload-content/${encodeURIComponent(contentId)}/likes`, {
+            headers: getHeaders(),
+            cache: 'no-store',
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch upload content likes');
+        return result?.likes || [];
+    },
+
+    fetchUploadContentComments: async (contentId: string) => {
+        const response = await fetch(`${MAIN_API_URL}/upload-content/${encodeURIComponent(contentId)}/comments`, {
+            headers: getHeaders(),
+            cache: 'no-store',
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch upload content comments');
+        return result?.comments || [];
+    },
+
+    fetchUploadContentShares: async (contentId: string) => {
+        const response = await fetch(`${MAIN_API_URL}/upload-content/${encodeURIComponent(contentId)}/shares`, {
+            headers: getHeaders(),
+            cache: 'no-store',
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch upload content shares');
+        return result?.shares || [];
+    },
+
+    fetchUploadContentViews: async (contentId: string) => {
+        const response = await fetch(`${MAIN_API_URL}/upload-content/${encodeURIComponent(contentId)}/views`, {
+            headers: getHeaders(),
+            cache: 'no-store',
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch upload content views');
+        return result?.views || [];
     },
 
     // Withdrawal Admin

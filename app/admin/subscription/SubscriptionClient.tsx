@@ -80,15 +80,26 @@ export default function SubscriptionClient() {
         const value = Math.max(1, Number(extra.content_expiry_value || 1));
         return `${value} ${unit}`;
     };
+    const formatVideoLimit = (value: number) => {
+        const totalSeconds = Math.max(0, Math.round(value * 60));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (minutes > 0 && seconds > 0) return `${minutes} min ${seconds} sec`;
+        if (minutes > 0) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+        return `${seconds} second${seconds === 1 ? '' : 's'}`;
+    };
     const getContentUploadFeatures = (plan?: Plan) => {
         const extra = plan?.extra || {};
         const labels = extra.labels || {};
         const isBasic = !!plan?.is_default || plan?.slug === 'basic' || Number(plan?.price || 0) === 0;
+        const uploadContentLimit = Number(extra.content_upload_limit ?? (isBasic ? 5 : 15));
         const dailyUploads = Number(extra.content_daily_upload_limit ?? (isBasic ? 1 : 3));
         const videoLimit = Number(extra.content_video_limit_minutes ?? (isBasic ? 1 : 5));
+        const safeVideoLimit = Number.isFinite(videoLimit) ? videoLimit : (isBasic ? 1 : 5);
         return [
+            `${labels.content_upload_limit || 'Upload Content Limit'}: ${Number.isFinite(uploadContentLimit) ? uploadContentLimit : (isBasic ? 5 : 15)}`,
             `${labels.content_daily_upload_limit || 'Daily Uploads'}: ${Number.isFinite(dailyUploads) ? dailyUploads : (isBasic ? 1 : 3)}`,
-            `${labels.content_video_limit_minutes || 'Video Limit'}: ${Number.isFinite(videoLimit) ? videoLimit : (isBasic ? 1 : 5)} minute${videoLimit === 1 ? '' : 's'}`,
+            `${labels.content_video_limit_minutes || 'Video Limit'}: ${formatVideoLimit(safeVideoLimit)}`,
             `${labels.content_expiry || 'Upload Content Expiry'}: ${getContentExpiryLabel(plan)}`,
         ];
     };

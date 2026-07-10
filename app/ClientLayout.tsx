@@ -5,6 +5,17 @@ import { useState, useEffect, useCallback } from "react";
 import Sidebar from "./components/Sidebar";
 import IonIcon from "./components/IonIcon";
 
+const normalizeRole = (value: unknown) =>
+    String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_");
+
+const isAdminRole = (value: unknown) => {
+    const normalized = normalizeRole(value);
+    return ["admin", "super_admin", "superadmin", "employee", "administrator"].includes(normalized);
+};
+
 export default function ClientLayout({
     children,
 }: {
@@ -41,8 +52,8 @@ export default function ClientLayout({
                 return;
             }
             const user = JSON.parse(localStorage.getItem("user") || "{}");
-            // Allow if user_type is superadmin OR if user_type is missing (profile not yet fetched)
-            if (user && user.user_type && user.user_type !== "superadmin") {
+            // Allow if user_type is admin-capable OR if user_type is missing (profile not yet fetched).
+            if (user && user.user_type && !isAdminRole(user.user_type)) {
                 localStorage.removeItem("token");
                 localStorage.removeItem("user");
                 router.replace("/");

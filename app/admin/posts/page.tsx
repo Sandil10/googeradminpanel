@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import GoogInteractionBottomSheet from "../../components/GoogInteractionBottomSheet";
 import IonIcon from "../../components/IonIcon";
 import { adminService } from "../../services/adminService";
 import { toManagedMediaUrl } from "../../utils/mediaUrl";
@@ -33,6 +34,14 @@ type PostRow = {
 };
 
 const POSTS_PER_PAGE = 20;
+const SORT_OPTIONS = [
+  { key: "latest", label: "Latest Posts" },
+  { key: "likes", label: "Most Likes" },
+  { key: "comments", label: "Most Comments" },
+  { key: "views", label: "Most Views" },
+  { key: "shares", label: "Most Shares" },
+] as const;
+const INTERACTION_TABS = ["likes", "comments", "shares", "views"] as const;
 const SUSPENSION_REASONS = [
   "Spam Activity",
   "Fake Account / Impersonation",
@@ -74,6 +83,7 @@ export default function PostsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [activeSort, setActiveSort] = useState<(typeof SORT_OPTIONS)[number]["key"]>("latest");
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
@@ -85,6 +95,11 @@ export default function PostsPage() {
   const [deactivating, setDeactivating] = useState(false);
   const [accessPostUser, setAccessPostUser] = useState<PostRow | null>(null);
   const [walletAccessChecked, setWalletAccessChecked] = useState(false);
+  const [interactionPost, setInteractionPost] = useState<PostRow | null>(null);
+  const [interactionType, setInteractionType] = useState<(typeof INTERACTION_TABS)[number]>("comments");
+  const [interactionData, setInteractionData] = useState<any[]>([]);
+  const [interactionLoading, setInteractionLoading] = useState(false);
+  const [interactionError, setInteractionError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -107,7 +122,7 @@ export default function PostsPage() {
     return () => { active = false; clearInterval(iv); };
   }, [searchTerm]);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, activeSort]);
 
   const totals = useMemo(() => posts.reduce(
     (acc, p) => ({
@@ -119,10 +134,24 @@ export default function PostsPage() {
     { likes: 0, comments: 0, views: 0, shares: 0 }
   ), [posts]);
 
-  const totalPages = Math.max(1, Math.ceil(posts.length / POSTS_PER_PAGE));
+  const sortedPosts = useMemo(() => {
+    const list = [...posts];
+
+    list.sort((a, b) => {
+      if (activeSort === "likes") return Number(b.likes_count || 0) - Number(a.likes_count || 0);
+      if (activeSort === "comments") return Number(b.comments_count || 0) - Number(a.comments_count || 0);
+      if (activeSort === "views") return Number(b.views_count || 0) - Number(a.views_count || 0);
+      if (activeSort === "shares") return Number(b.shares_count || 0) - Number(a.shares_count || 0);
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    return list;
+  }, [activeSort, posts]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedPosts.length / POSTS_PER_PAGE));
   const pagedPosts = useMemo(
-    () => posts.slice((currentPage - 1) * POSTS_PER_PAGE, currentPage * POSTS_PER_PAGE),
-    [currentPage, posts]
+    () => sortedPosts.slice((currentPage - 1) * POSTS_PER_PAGE, currentPage * POSTS_PER_PAGE),
+    [currentPage, sortedPosts]
   );
 
   useEffect(() => {
@@ -185,6 +214,36 @@ export default function PostsPage() {
     }
   };
 
+  const loadInteractionSheet = async (post: PostRow, type: (typeof INTERACTION_TABS)[number]) => {
+    setInteractionPost(post);
+    setInteractionType(type);
+    setInteractionData([]);
+    setInteractionError(null);
+    setInteractionLoading(true);
+
+    try {
+      let result: any[] = [];
+      if (type === "comments") result = await adminService.fetchGoogPostComments(post.id);
+      else if (type === "likes") result = await adminService.fetchGoogPostLikes(post.id);
+      else if (type === "shares") result = await adminService.fetchGoogPostShares(post.id);
+      else result = await adminService.fetchGoogPostViews(post.id);
+
+      setInteractionData(Array.isArray(result) ? result : []);
+    } catch (err: any) {
+      setInteractionError(err.message || `Failed to fetch ${type}.`);
+      setInteractionData([]);
+    } finally {
+      setInteractionLoading(false);
+    }
+  };
+
+  const closeInteractionSheet = () => {
+    setInteractionPost(null);
+    setInteractionData([]);
+    setInteractionError(null);
+    setInteractionLoading(false);
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -228,6 +287,26 @@ export default function PostsPage() {
               className="w-full rounded-[1.2rem] border border-white/8 bg-white/[0.04] py-2.5 pl-10 pr-4 text-xs font-medium text-white placeholder:text-slate-600 focus:outline-none focus:border-white/20"
             />
           </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 border-b border-white/6 px-5 py-4">
+          {SORT_OPTIONS.map(option => {
+            const isActive = activeSort === option.key;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setActiveSort(option.key)}
+                className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${
+                  isActive
+                    ? "border-white/18 bg-white text-[#09090b]"
+                    : "border-white/10 bg-white/[0.04] text-[#d9c4a2] hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
 
         {loading ? (
@@ -283,23 +362,42 @@ export default function PostsPage() {
 
                         {/* Engagement icons */}
                         <div className="mt-4 flex items-center gap-5 text-white/80">
-                          <span className="flex items-center gap-1 text-white/50">
+                          <button
+                            type="button"
+                            onClick={() => loadInteractionSheet(post, "likes")}
+                            className="flex items-center gap-1 text-white/50 transition-colors hover:text-white"
+                          >
                             <IonIcon name="heart-outline" className="text-[21px]" />
                             {post.likes_count > 0 && <span className="text-xs font-bold">{post.likes_count}</span>}
-                          </span>
-                          <span className="flex items-center gap-1 text-white/50">
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => loadInteractionSheet(post, "comments")}
+                            className="flex items-center gap-1 text-white/50 transition-colors hover:text-white"
+                          >
                             <IonIcon name="chatbubble-outline" className="text-[21px]" />
                             {post.comments_count > 0 && <span className="text-xs font-bold">{post.comments_count}</span>}
-                          </span>
-                          <span className="flex items-center gap-1 text-white/50">
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => loadInteractionSheet(post, "views")}
+                            className="flex items-center gap-1 text-white/50 transition-colors hover:text-white"
+                          >
                             <IonIcon name="eye-outline" className="text-[21px]" />
                             {post.views_count > 0 && <span className="text-xs font-bold">{post.views_count}</span>}
-                          </span>
-                          <span className="flex items-center gap-1 text-white/50">
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => loadInteractionSheet(post, "shares")}
+                            className="flex items-center gap-1 text-white/50 transition-colors hover:text-white"
+                          >
                             <IonIcon name="share-social-outline" className="text-[21px]" />
                             {post.shares_count > 0 && <span className="text-xs font-bold">{post.shares_count}</span>}
-                          </span>
+                          </button>
                         </div>
+                        {interactionPost?.id === post.id && interactionError ? (
+                          <p className="mt-2 text-[10px] font-bold text-rose-300">{interactionError}</p>
+                        ) : null}
                       </div>
                     </div>
 
@@ -377,7 +475,7 @@ export default function PostsPage() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
                 <p className="text-[10px] font-semibold text-white/30">
-                  {(currentPage - 1) * POSTS_PER_PAGE + 1}–{Math.min(currentPage * POSTS_PER_PAGE, posts.length)} of {posts.length}
+                  {(currentPage - 1) * POSTS_PER_PAGE + 1}–{Math.min(currentPage * POSTS_PER_PAGE, sortedPosts.length)} of {sortedPosts.length}
                 </p>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setCurrentPage(v => Math.max(1, v - 1))} disabled={currentPage === 1}
@@ -450,6 +548,23 @@ export default function PostsPage() {
           </div>
         </div>
       )}
+
+      <GoogInteractionBottomSheet
+        isOpen={Boolean(interactionPost)}
+        onClose={closeInteractionSheet}
+        type={interactionType}
+        onTabChange={(nextType) => {
+          if (interactionPost) void loadInteractionSheet(interactionPost, nextType);
+        }}
+        post={interactionPost ? {
+          id: interactionPost.id,
+          text: interactionPost.text,
+          username: interactionPost.username,
+          full_name: interactionPost.full_name,
+        } : null}
+        data={interactionData}
+        isLoading={interactionLoading}
+      />
 
       {/* Deactivate account modal */}
       {deactivateModal && (

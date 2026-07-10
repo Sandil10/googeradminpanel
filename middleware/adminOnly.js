@@ -15,6 +15,11 @@ const adminOnly = async (req, res, next) => {
             return res.status(401).json({ success: false, message: 'Authentication required' });
         }
 
+        const tokenUserType = normalizeRole(req.user?.user_type);
+        if (allowedRoles.has(tokenUserType)) {
+            return next();
+        }
+
         const result = await pool.query(
             `SELECT id, username, user_type
              FROM users

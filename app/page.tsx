@@ -5,6 +5,17 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import IonIcon from "@/components/IonIcon";
 
+const normalizeRole = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+const isAdminRole = (value: unknown) => {
+  const normalized = normalizeRole(value);
+  return ["admin", "super_admin", "superadmin", "employee", "administrator"].includes(normalized);
+};
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,11 +26,11 @@ export default function LoginPage() {
   const submitting = useRef(false);
 
   useEffect(() => {
-    // If already logged in as superadmin, redirect to admin panel
+    // If already logged in as an admin-capable account, redirect to admin panel.
     try {
       const token = localStorage.getItem("token");
       const user = JSON.parse(localStorage.getItem("user") || "{}");
-      if (token && user?.user_type === "superadmin") {
+      if (token && isAdminRole(user?.user_type)) {
         router.replace("/admin");
       }
     } catch (_) {}

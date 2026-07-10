@@ -1,0 +1,21 @@
+{
+  "watch": [
+    "server.js",
+    "routes",
+    "controllers",
+    "config",
+    "middleware",
+    "utils",
+    "workers",
+    "shared"
+  ],
+  "ext": "js,json,mjs,ts",
+  "ignore": [
+    "app/**",
+    ".next/**",
+    "public/**",
+    "docs/**",
+    "database/**",
+    "node_modules/**"
+  ]
+}

@@ -55,6 +55,12 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
     }, [router]);
 
     useEffect(() => {
+        const storedUser = authService.getStoredUser();
+        if (storedUser) {
+            setUser(storedUser);
+            setLoading(false);
+        }
+
         const fetchUser = async () => {
             try {
                 const profile = await authService.getProfile();
@@ -71,8 +77,10 @@ export default function Sidebar({ isCollapsed, onToggle, isMobileOpen, onCloseMo
                 } else {
                     console.error("Error fetching user:", error);
                 }
-                // Fallback for dev if needed
-                setUser({ username: 'admin', full_name: 'Administrator' });
+                if (!storedUser) {
+                    // Fallback for dev if needed
+                    setUser({ username: 'admin', full_name: 'Administrator' });
+                }
             } finally {
                 setLoading(false);
             }

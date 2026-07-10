@@ -85,10 +85,20 @@ export const authService = {
 
     isAuthenticated: () => !!storage.get('token'),
 
+    getStoredUser: () => {
+        try {
+            const raw = storage.get('user');
+            return raw ? JSON.parse(raw) : null;
+        } catch {
+            return null;
+        }
+    },
+
     getProfile: async () => {
         try {
             const token = storage.get('token');
             if (!token) throw new Error('No session found');
+            const storedUser = authService.getStoredUser();
 
             const response = await fetch(`${API_URL}/auth/profile`, {
                 method: 'GET',
@@ -100,6 +110,9 @@ export const authService = {
 
             const result = await safeJson(response);
             if (!response.ok) {
+                if (response.status >= 500 && storedUser) {
+                    return storedUser;
+                }
                 const errorMsg = result?.message || result?.error || `Error: ${response.status}`;
                 throw new Error(errorMsg);
             }
@@ -113,6 +126,10 @@ export const authService = {
             }
             return result;
         } catch (error: any) {
+            const storedUser = authService.getStoredUser();
+            if (storedUser && String(error?.message || '').toLowerCase().includes('server error')) {
+                return storedUser;
+            }
             throw error;
         }
     },

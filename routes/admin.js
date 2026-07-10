@@ -135,6 +135,30 @@ async function tableExists(tableName) {
 
 router.get('/stats', async (req, res) => {
     try {
+        const statsResult = await pool.query(`
+            SELECT
+                (SELECT COUNT(*)::bigint FROM users) AS total_users,
+                (SELECT COUNT(*)::bigint FROM users WHERE LOWER(user_type) = 'seller') AS active_sellers,
+                (SELECT COUNT(*)::bigint FROM market WHERE status IN ('pending', 'reviewing')) AS pending_products,
+                (SELECT COALESCE(SUM(wallet_balance), 0) FROM users) AS total_users_balance,
+                (SELECT COALESCE(SUM(commission), 0) FROM wallet_transfers WHERE status = 'accepted') AS googer_balance,
+                (SELECT COALESCE(SUM(commission), 0) FROM ad_coin_collections) AS coin_collect_balance,
+                (SELECT COALESCE(SUM(commission), 0) FROM wallet_transfers WHERE status = 'accepted' AND type = 'profile_promote') AS ad_publish_balance,
+                (SELECT COALESCE(SUM(commission), 0) FROM wallet_transfers WHERE type = 'system_topup' AND status = 'accepted') AS capital_transfer_balance
+        `);
+        const stats = statsResult.rows[0] || {};
+
+        return res.json({
+            totalUsers: stats.total_users || 0,
+            activeSellers: stats.active_sellers || 0,
+            pendingProducts: stats.pending_products || 0,
+            totalUsersBalance: stats.total_users_balance || 0,
+            googerBalance: stats.googer_balance || 0,
+            coinCollectBalance: parseFloat(stats.coin_collect_balance || 0),
+            adPublishBalance: parseFloat(stats.ad_publish_balance || 0),
+            capitalTransferBalance: parseFloat(stats.capital_transfer_balance || 0),
+        });
+
         const [usersCount, sellersCount, pendingProducts, totalBalance, commissions, coinCollect, adPublish, capital] = await Promise.all([
             pool.query('SELECT COUNT(*) FROM users'),
             pool.query("SELECT COUNT(*) FROM users WHERE LOWER(user_type) = 'seller'"),
@@ -845,7 +869,7 @@ router.get('/traffic-analysis', async (req, res) => {
         const requestsPerSecond = trafficRound(activeConcurrentUsers > 0 ? activeConcurrentUsers / 20 : 0, 2);
         const estimatedMaximumConcurrentUsers = Math.max(
             50,
-            Math.round(cpuCores * 220 * (totalMemoryBytes / (1024 ** 3) / 2) * (topology === 'split-services' ? 1.2 : 1)),
+            Math.round(cpuCores * 220 * (freeMemoryBytes / (1024 ** 3) / 2) * (topology === 'split-services' ? 1.2 : 1)),
         );
         const currentUtilizationPercent = trafficClamp(Math.max(
             trafficNumber(cpuUsagePercent),

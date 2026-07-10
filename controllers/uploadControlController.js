@@ -16,6 +16,16 @@ const DEFAULT_SETTINGS = {
 
 let tableReady = false;
 
+const MAIN_BACKEND_CANDIDATES = [
+    process.env.GOOGER_MAIN_API_URL,
+    process.env.MAIN_BACKEND_URL,
+    'http://localhost:5000',
+    'http://127.0.0.1:5000',
+    'http://main-backend:5000',
+]
+    .map((value) => String(value || '').trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+
 const ensureTable = async () => {
     if (tableReady) return;
 
@@ -178,6 +188,14 @@ const mapUploadContentRow = (row) => {
         content_access_mode: row.content_access_mode === 'blurred' ? 'blurred' : 'unblurred',
         preview_mode: row.preview_mode === 'auto_preview' ? 'auto_preview' : 'thumbnail',
         preview_url: row.preview_url || '',
+        video_duration_seconds: Number(row.video_duration_seconds || 0),
+        videoDurationSeconds: Number(row.video_duration_seconds || 0),
+        video_trim_start_seconds: Number(row.video_trim_start_seconds || 0),
+        videoTrimStartSeconds: Number(row.video_trim_start_seconds || 0),
+        video_trim_end_seconds: Number(row.video_trim_end_seconds || 0),
+        videoTrimEndSeconds: Number(row.video_trim_end_seconds || 0),
+        video_original_duration_seconds: Number(row.video_original_duration_seconds || 0),
+        videoOriginalDurationSeconds: Number(row.video_original_duration_seconds || 0),
         visibility: normalizeVisibility(row.visibility),
         status: normalizeContentStatus(row.status),
         rejection_reason: row.rejection_reason || null,
@@ -189,6 +207,10 @@ const mapUploadContentRow = (row) => {
         full_name: row.full_name || null,
         profile_picture: row.profile_picture || null,
         user_type: row.user_type || null,
+        likes_count: Number(row.likes_count || 0),
+        comments_count: Number(row.comments_count || 0),
+        shares_count: Number(row.shares_count || 0),
+        views_count: Number(row.views_count || 0),
     };
 };
 
@@ -395,7 +417,18 @@ exports.getUploadContentsAdmin = async (req, res) => {
             ORDER BY uc.created_at DESC
         `, params);
 
-        return res.json({ success: true, contents: rows.map(mapUploadContentRow) });
+        const contents = rows.map((row) => {
+            const mapped = mapUploadContentRow(row);
+            return {
+                ...mapped,
+                likes_count: Number(mapped.likes_count || 0),
+                comments_count: Number(mapped.comments_count || 0),
+                shares_count: Number(mapped.shares_count || 0),
+                views_count: Number(mapped.views_count || 0),
+            };
+        });
+
+        return res.json({ success: true, contents });
     } catch (error) {
         console.error('[uploadControl] getUploadContentsAdmin error:', error);
         return res.status(500).json({ success: false, message: 'Failed to fetch upload contents' });
