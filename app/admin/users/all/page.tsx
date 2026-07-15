@@ -126,18 +126,24 @@ export default function AllUsersPage() {
     return () => clearInterval(interval);
   }, [userTypeFilter]);
 
+  const normalizedUserType = (u: User) => u.user_type?.trim().toLowerCase().replace(/[\s-]+/g, '_') ?? '';
+  const isSuperAdmin = (u: User) => normalizedUserType(u) === 'super_admin' || normalizedUserType(u) === 'superadmin' || u.username?.toLowerCase() === 'superadmin';
   const isSystemAdmin = (u: User) => u.username?.toLowerCase() === 'admin';
+  const isProtectedAdmin = (u: User) => isSystemAdmin(u) || isSuperAdmin(u);
   const isSuspendedUser = (u: User) => u.is_deactivated === true || u.status === 'Deactivated';
 
   const typeFilteredUsers = userTypeFilter
     ? users.filter(user => !isSystemAdmin(user) && user.user_type && user.user_type.toLowerCase() === userTypeFilter.toLowerCase())
     : users.filter(user => !isSystemAdmin(user));
 
-  const totalUserBalance = typeFilteredUsers.reduce((sum, user) => sum + parseFloat(user.wallet_balance || '0'), 0);
+  const dashboardUserBalance = Number(stats?.totalUsersBalance);
+  const totalUserBalance = Number.isFinite(dashboardUserBalance)
+    ? dashboardUserBalance
+    : 0;
 
   const availableGoogerBalance = parseFloat(String(stats?.googerBalance || 0));
   const displayBalance = Number.isFinite(availableGoogerBalance) ? availableGoogerBalance : 0;
-  const transferableUsers = users.filter(u => !isSystemAdmin(u) && ['admin', 'super_admin'].includes(u.user_type?.toLowerCase() ?? ''));
+  const transferableUsers = users.filter(u => !isProtectedAdmin(u) && ['admin', 'super_admin'].includes(normalizedUserType(u)));
 
   const availableCountries = Array.from(
     new Set(typeFilteredUsers.map(u => u.country).filter(Boolean))
@@ -488,7 +494,7 @@ export default function AllUsersPage() {
                               href={`/admin/users/${user.id}?returnTo=${pathname}&from=Users`}
                               className="font-bold text-white text-sm hover:text-blue-400 transition-colors"
                             >
-                              {user.user_type?.toLowerCase() === 'admin' ? `@${user.username}` : user.full_name}
+                              {normalizedUserType(user) === 'admin' || isSuperAdmin(user) ? `@${user.username}` : user.full_name}
                             </Link>
                             <span className="text-[10px] text-slate-500 font-mono">ID: {user.user_id}</span>
                           </div>
@@ -497,13 +503,15 @@ export default function AllUsersPage() {
                             <span className="text-[11px] text-slate-500 italic mt-0.5">{user.email}</span>
                             <div className="flex items-center gap-2 mt-2">
                               <span className={`px-3 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
-                                user.user_type?.toLowerCase() === 'admin' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                                isSuperAdmin(user) ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                                normalizedUserType(user) === 'admin' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
                                 user.user_type?.toLowerCase() === 'seller' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
                                 user.user_type?.toLowerCase() === 'employee' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
                                 user.user_type?.toLowerCase() === 'buyer' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                                 'bg-white/5 text-slate-400 border-white/5'
                               }`}>
-                                {user.user_type?.toLowerCase() === 'admin' ? 'Admin' :
+                                {isSuperAdmin(user) ? 'Super Admin' :
+                                 normalizedUserType(user) === 'admin' ? 'Admin' :
                                  user.user_type?.toLowerCase() === 'seller' ? 'Seller' :
                                  user.user_type?.toLowerCase() === 'employee' ? 'Employee' :
                                  user.user_type?.toLowerCase() === 'buyer' ? 'Buyer' : 'User'}
@@ -522,7 +530,7 @@ export default function AllUsersPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <span className="text-lg font-black text-white">R {parseFloat(user.wallet_balance || '0').toLocaleString()}</span>
+                      <span className="text-lg font-black text-white">R {isSuperAdmin(user) ? '0' : parseFloat(user.wallet_balance || '0').toLocaleString()}</span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2 flex-wrap">
@@ -534,7 +542,7 @@ export default function AllUsersPage() {
                           <span className="hidden lg:inline">View Full Profile</span>
                           <span className="lg:hidden">View</span>
                         </Link>
-                        {user.user_type?.toLowerCase() !== 'admin' && (
+                        {!isProtectedAdmin(user) && (
                           <>
                             <button
                               onClick={() => openWalletAccess(user)}

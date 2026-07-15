@@ -131,6 +131,14 @@ pool.query('SELECT NOW()', (err, res) => {
     console.log('Database connected at:', res.rows[0].now);
     pool.query(
         `UPDATE users
+         SET user_type = 'super_admin'
+         WHERE LOWER(COALESCE(username, '')) = 'superadmin'
+           AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(user_type, '')), ' ', '_'), '-', '_')) <> 'super_admin'`
+    ).then((result) => {
+        if (result.rowCount > 0) console.log('Super Admin account role normalized');
+    }).catch((error) => console.error('Failed to normalize Super Admin role:', error.message));
+    pool.query(
+        `UPDATE users
          SET full_name = CASE
                  WHEN LOWER(REPLACE(COALESCE(user_type, ''), '-', '_')) IN ('super_admin', 'superadmin')
                      THEN 'Googer Support'

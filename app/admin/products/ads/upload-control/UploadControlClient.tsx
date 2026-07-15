@@ -31,6 +31,8 @@ type UploadContentRow = {
     price: number;
     subscription_packages?: Array<{ id: string; price: number; days: number }>;
     affiliate_commission: number;
+    hashtags?: string[];
+    allow_comments?: boolean;
     show_link_on_home: boolean;
     external_link?: string;
     media_type: string;
@@ -50,6 +52,9 @@ type UploadContentRow = {
     video_original_duration_seconds?: number;
     videoOriginalDurationSeconds?: number;
     status: "Pending Approval" | "Approved" | "Rejected" | "Cancelled";
+    pending_edit_status?: "Pending Approval" | null;
+    has_pending_edit?: boolean;
+    pending_edit_submitted_at?: string | null;
     username?: string | null;
     full_name?: string | null;
     profile_picture?: string | null;
@@ -1214,7 +1219,7 @@ export default function UploadControlClient() {
                                                                 {subscriptionPackages.map((pkg, index) => (
                                                                     <div key={pkg.id || `${contentId}-pkg-${index}`} className="flex items-center justify-between rounded-xl border border-white/8 bg-black/20 px-3 py-2 text-[10px] font-bold text-white/75">
                                                                         <span>Package {index + 1}</span>
-                                                                        <span>Rupier {Number(pkg.price || 0).toLocaleString()} / {formatPackageDuration(Number(pkg.days || 0))}</span>
+                                                                        <span>Rupieer {Number(pkg.price || 0).toLocaleString()} / {formatPackageDuration(Number(pkg.days || 0))}</span>
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -2177,7 +2182,10 @@ export default function UploadControlClient() {
                                     </div>
                                 ) : engagementActiveTab !== "comments" && engagementRecords.length > 0 ? (
                                     <div className="space-y-3">
-                                        {engagementRecords.map((actor, index) => renderActorRow(actor as EngagementActor, `${engagementActiveTab}-${String(actor.id ?? actor.user_id ?? index)}`))}
+                                        {engagementRecords.map((actor, index) => renderActorRow(
+                                            actor as EngagementActor,
+                                            `${engagementActiveTab}-${String(actor.id ?? actor.user_id ?? 'record')}-${index}`,
+                                        ))}
                                     </div>
                                 ) : engagementActiveTab === "comments" ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-center">

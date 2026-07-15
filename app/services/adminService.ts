@@ -60,7 +60,8 @@ export const adminService = {
     // User Management
     fetchAllUsers: async () => {
         const response = await fetch(`${API_URL}/users/all`, {
-            headers: getHeaders()
+            headers: getHeaders(),
+            cache: 'no-store',
         });
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch users');
@@ -377,7 +378,8 @@ export const adminService = {
     // Global Stats
     fetchStats: async () => {
         const response = await fetch(`${API_URL}/admin/stats`, {
-            headers: getHeaders()
+            headers: getHeaders(),
+            cache: 'no-store',
         });
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch stats');
@@ -1372,6 +1374,17 @@ export const adminService = {
         });
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch traffic analysis');
+        return result;
+    },
+
+    // Lightweight presence counts for the live monitor — safe to poll every 1-3s.
+    fetchTrafficPulse: async () => {
+        const response = await fetch(`${API_URL}/admin/traffic-analysis/pulse`, {
+            headers: getHeaders(),
+            cache: 'no-store',
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch traffic pulse');
         return result;
     },
 

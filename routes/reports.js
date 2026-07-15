@@ -69,6 +69,17 @@ const ensureReportTables = async () => {
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(comment_id, user_id)
   )`).catch(()=>{});
+  await pool2.query(`CREATE TABLE IF NOT EXISTS upload_content_reports (
+    id SERIAL PRIMARY KEY,
+    content_id INTEGER REFERENCES upload_contents(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reason VARCHAR(120) NOT NULL DEFAULT '',
+    custom_reason TEXT,
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(content_id, user_id)
+  )`).catch(()=>{});
+  await pool2.query(`ALTER TABLE upload_content_reports ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending'`).catch(()=>{});
   await pool2.query(`ALTER TABLE market_reports ALTER COLUMN reason TYPE VARCHAR(500)`).catch(()=>{});
   await pool2.query(`CREATE TABLE IF NOT EXISTS market_reports (
     id SERIAL PRIMARY KEY, market_id INTEGER REFERENCES market(id) ON DELETE CASCADE,
@@ -230,6 +241,34 @@ router.get('/profiles', async (req, res) => {
 });
 
 // Ads/product reports — market_reports (shop products) + ad_reports (photo/video/promote ads)
+// Flash/Vault content reports
+router.get('/contents', async (req, res) => {
+  const tableCheck = await safeQuery(`
+    SELECT 1 FROM information_schema.tables WHERE table_name = 'upload_content_reports'
+  `);
+  if (!tableCheck.length) return res.json({ reports: [] });
+
+  const rows = await safeQuery(`
+    SELECT ucr.id, ucr.content_id AS internal_content_id, ucr.reason, ucr.custom_reason,
+           COALESCE(ucr.status, 'pending') AS status, ucr.created_at,
+           uc.content_id AS public_content_id,
+           uc.content_type, uc.description, uc.topic, uc.price, uc.status AS content_status,
+           uc.media_preview, uc.thumbnail_url, uc.reports_count,
+           ru.id AS reporter_db_id, ru.user_id AS reporter_public_id,
+           ru.username AS reporter_username, ru.full_name AS reporter_name,
+           ru.profile_picture AS reporter_profile_picture,
+           ou.id AS owner_db_id, ou.user_id AS owner_public_id,
+           ou.username AS owner_username, ou.full_name AS owner_name,
+           ou.profile_picture AS owner_profile_picture
+    FROM upload_content_reports ucr
+    LEFT JOIN upload_contents uc ON ucr.content_id = uc.id
+    LEFT JOIN users ru ON ucr.user_id = ru.id
+    LEFT JOIN users ou ON uc.user_id = ou.id
+    ORDER BY ucr.created_at DESC
+  `);
+  res.json({ reports: rows });
+});
+
 router.get('/ads', async (req, res) => {
   // Debug: log raw market_reports rows and market table count
   const rawCount = await safeQuery(`SELECT COUNT(*) FROM market_reports`);

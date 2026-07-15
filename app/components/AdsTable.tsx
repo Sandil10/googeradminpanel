@@ -45,6 +45,11 @@ interface AdRecord {
     status?: string;
     campaign_path?: string;
     wallet_transfer_id?: number;
+    estimated_reach_min?: number | string | null;
+    estimated_reach_max?: number | string | null;
+    max_reach_cap?: number | string | null;
+    promo_code?: string | null;
+    promo_discount?: number | string | null;
     rejection_reason?: string | null;
     rejection_note?: string | null;
     edit_draft?: any;
@@ -107,6 +112,12 @@ type AdHistoryRow = {
     clicks?: number;
     spend?: number;
     remainingBudget?: number;
+    walletTransferId?: number | null;
+    estimatedReachMin?: number | null;
+    estimatedReachMax?: number | null;
+    maxReachCap?: number | null;
+    promoCode?: string | null;
+    promoDiscount?: number | null;
     campaignPath?: string;
     rejectionReason?: string;
     rejectionNote?: string;
@@ -240,6 +251,12 @@ function normalizeApiAds(input: AdRecord[]) {
             clicks: Number(data.clicks || 0),
             spend: Number(data.spend || 0),
             remainingBudget: Number(data.remaining_budget || 0),
+            walletTransferId: data.wallet_transfer_id ? Number(data.wallet_transfer_id) : null,
+            estimatedReachMin: Number.isFinite(Number(data.estimated_reach_min)) ? Number(data.estimated_reach_min) : null,
+            estimatedReachMax: Number.isFinite(Number(data.estimated_reach_max)) ? Number(data.estimated_reach_max) : null,
+            maxReachCap: Number.isFinite(Number(data.max_reach_cap)) ? Number(data.max_reach_cap) : null,
+            promoCode: typeof data.promo_code === "string" ? data.promo_code : null,
+            promoDiscount: Number.isFinite(Number(data.promo_discount)) ? Number(data.promo_discount) : null,
             campaignPath: typeof data.campaign_path === "string" ? data.campaign_path : undefined,
             rejectionReason: typeof data.rejection_reason === "string" ? data.rejection_reason : undefined,
             rejectionNote: typeof data.rejection_note === "string" ? data.rejection_note : undefined,
@@ -256,6 +273,25 @@ function formatDateTime(value: string) {
 
 function formatCurrency(value?: number) {
     return `R ${Number(value || 0).toLocaleString()}`;
+}
+
+function isFreeAd(ad: AdHistoryRow) {
+    const draft = ad.editDraft || {};
+    const budget = Number(ad.budget || 0);
+    const promoDiscount = Number(ad.promoDiscount ?? (draft as any).promoDiscount ?? (draft as any).promo_discount ?? 0);
+    const hasPromoCode = Boolean(ad.promoCode || (draft as any).promoCode || (draft as any).promo_code || (draft as any).hasPromoCodeAdded);
+    return budget <= 0
+        || Boolean((draft as any).isFreePromo || (draft as any).free_ad || (draft as any).freeAd)
+        || (hasPromoCode && promoDiscount >= 100)
+        || (hasPromoCode && !ad.walletTransferId);
+}
+
+function formatAdBudget(ad: AdHistoryRow, value: number | undefined = ad.budget) {
+    return isFreeAd(ad) ? "Free" : formatCurrency(value);
+}
+
+function formatAdBudgetDetail(ad: AdHistoryRow, value: number | undefined = ad.budget) {
+    return isFreeAd(ad) ? "Free" : `Rupieer ${Number(value || 0).toLocaleString()}`;
 }
 
 function parseAdDate(value?: string | null) {
@@ -341,6 +377,10 @@ function formatSpend(value?: number | string) {
     return <span className="text-red-400">-R {amount.toLocaleString()}</span>;
 }
 
+function formatAdSpend(ad: AdHistoryRow) {
+    return isFreeAd(ad) ? <span>Free</span> : formatSpend(ad.spend);
+}
+
 function formatReachCount(value: number) {
     return Number(value || 0).toLocaleString();
 }
@@ -363,10 +403,15 @@ function getTitle(ad: AdHistoryRow) {
 }
 
 function getEstimatedReachLabel(ad: AdHistoryRow) {
+    const minReach = Number(ad.estimatedReachMin || 0);
+    const maxReach = Number(ad.estimatedReachMax || ad.maxReachCap || 0);
+    if (minReach > 0 && maxReach > 0) return `${formatReachCount(minReach)} - ${formatReachCount(maxReach)}`;
+    if (maxReach > 0) return formatReachCount(maxReach);
+
     const budget = Number(ad.budget || 0);
-    const minReach = Math.round((budget / 100) * 300);
-    const maxReach = Math.round((budget / 100) * 500);
-    return `${formatReachCount(minReach)} - ${formatReachCount(maxReach)}`;
+    const fallbackMinReach = Math.round((budget / 100) * 300);
+    const fallbackMaxReach = Math.round((budget / 100) * 500);
+    return `${formatReachCount(fallbackMinReach)} - ${formatReachCount(fallbackMaxReach)}`;
 }
 
 function getLocationLabel(ad: AdHistoryRow) {
@@ -826,6 +871,11 @@ export default function AdsTable() {
                                             <p className="mt-1 text-[9px] font-black uppercase tracking-[0.08em] text-white/35">
                                                 {ad.campaignType} • {getPublishedHeaderTime(ad)}
                                             </p>
+                                            {isFreeAd(ad) && (
+                                                <span className="mt-1.5 inline-flex rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-1 text-[8px] font-black uppercase tracking-[0.12em] text-emerald-200">
+                                                    Free Ad
+                                                </span>
+                                            )}
                                             <Link
                                                 href={`/admin/users/${ad.ownerId}?returnTo=${pathname}&from=Ads`}
                                                 className="mt-1 block text-[10px] font-bold text-white/70 transition-colors hover:text-white"
@@ -837,7 +887,7 @@ export default function AdsTable() {
                                         <div className="flex items-center gap-3 lg:justify-end">
                                             <div className="text-right">
                                                 <p className="text-[8px] font-black uppercase tracking-[0.12em] text-white/28">Total Budget</p>
-                                                <p className="mt-1 text-[1.35rem] font-black tracking-tight text-white">{formatCurrency(ad.budget)}</p>
+                                                <p className="mt-1 text-[1.35rem] font-black tracking-tight text-white">{formatAdBudget(ad)}</p>
                                                 {ad.status === "Under Review" && (
                                                     <div className="mt-1.5 flex items-center justify-end gap-1.5">
                                                         <button
@@ -938,7 +988,7 @@ export default function AdsTable() {
                                             <div className="mt-0.5 grid gap-0 text-[8px] font-black text-white sm:text-[9px]">
                                                 <div className={AD_DETAIL_ROW_CLASS}>
                                                     <span className="text-white/55">Total Budget</span>
-                                                    <span>Rupieer {Number(ad.budget || 0).toLocaleString()}</span>
+                                                    <span>{formatAdBudgetDetail(ad)}</span>
                                                 </div>
                                                 <div className={AD_DETAIL_ROW_CLASS}>
                                                     <span className="text-white/55">Duration</span>
@@ -998,15 +1048,15 @@ export default function AdsTable() {
                                             <div className="mt-0.5 grid gap-0 text-[8px] font-black text-white sm:text-[9px]">
                                                 <div className={AD_DETAIL_ROW_CLASS}>
                                                     <span className="text-white/55">Budget</span>
-                                                    <span>{formatCurrency(ad.budget)}</span>
+                                                    <span>{formatAdBudget(ad)}</span>
                                                 </div>
                                                 <div className={AD_DETAIL_ROW_CLASS}>
                                                     <span className="text-white/55">Spend</span>
-                                                    {formatSpend(ad.spend)}
+                                                    {formatAdSpend(ad)}
                                                 </div>
                                                 <div className={AD_DETAIL_ROW_CLASS}>
                                                     <span className="text-white/55">Remaining</span>
-                                                    <span>{formatCurrency(ad.remainingBudget)}</span>
+                                                    <span>{formatAdBudget(ad, ad.remainingBudget)}</span>
                                                 </div>
                                                 <div className={`${AD_DETAIL_ROW_CLASS} border-t border-white/8 pt-0.5`}>
                                                     <span className="text-white/55">Status</span>
@@ -1102,7 +1152,14 @@ export default function AdsTable() {
                                         </div>
                                         <div className="min-w-0">
                                             <p className="truncate text-[12px] font-black uppercase text-white">{getTitle(selectedAd)}</p>
-                                            <p className="mt-1 truncate text-[9px] font-bold uppercase tracking-[0.08em] text-white/38">{selectedAd.campaignType}</p>
+                                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                <p className="truncate text-[9px] font-bold uppercase tracking-[0.08em] text-white/38">{selectedAd.campaignType}</p>
+                                                {isFreeAd(selectedAd) && (
+                                                    <span className="inline-flex rounded-full border border-emerald-400/25 bg-emerald-400/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-[0.1em] text-emerald-200">
+                                                        Free Ad
+                                                    </span>
+                                                )}
+                                            </div>
                                             <p className="mt-1 truncate text-[9px] font-semibold text-white/48">Created {formatExactDateTime(selectedAd.createdAt)}</p>
                                             <Link
                                                 href={`/admin/users/${selectedAd.ownerId}?returnTo=${pathname}&from=Ads`}
@@ -1126,9 +1183,9 @@ export default function AdsTable() {
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Ad Start Time</span><span className="text-right">{getStartTimeLabel(selectedAd)}</span></div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Ad End Time</span><span className="text-right">{getEndTimeLabel(selectedAd)}</span></div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Remaining Time</span><span className="text-right">{formatRemainingTime(selectedAd, nowTick)}</span></div>
-                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Budget</span><span>{formatCurrency(selectedAd.budget)}</span></div>
-                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Spend</span>{formatSpend(selectedAd.spend)}</div>
-                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Remaining</span><span>{formatCurrency(selectedAd.remainingBudget)}</span></div>
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Budget</span><span>{formatAdBudget(selectedAd)}</span></div>
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Spend</span>{formatAdSpend(selectedAd)}</div>
+                                        <div className="flex items-center justify-between gap-3"><span className="text-white/45">Remaining</span><span>{formatAdBudget(selectedAd, selectedAd.remainingBudget)}</span></div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Duration</span><span>{selectedAd.durationDays || 0} days</span></div>
                                         <div className="flex items-center justify-between gap-3"><span className="text-white/45">Status</span><span>{selectedAd.status}</span></div>
                                     </div>

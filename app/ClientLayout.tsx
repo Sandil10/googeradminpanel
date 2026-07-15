@@ -13,7 +13,7 @@ const normalizeRole = (value: unknown) =>
 
 const isAdminRole = (value: unknown) => {
     const normalized = normalizeRole(value);
-    return ["admin", "super_admin", "superadmin", "employee", "administrator"].includes(normalized);
+    return ["admin", "super_admin", "superadmin"].includes(normalized);
 };
 
 export default function ClientLayout({
@@ -52,8 +52,7 @@ export default function ClientLayout({
                 return;
             }
             const user = JSON.parse(localStorage.getItem("user") || "{}");
-            // Allow if user_type is admin-capable OR if user_type is missing (profile not yet fetched).
-            if (user && user.user_type && !isAdminRole(user.user_type)) {
+            if (!user || !isAdminRole(user.user_type)) {
                 localStorage.removeItem("token");
                 localStorage.removeItem("user");
                 router.replace("/");

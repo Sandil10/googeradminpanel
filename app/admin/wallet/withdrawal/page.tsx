@@ -1152,7 +1152,7 @@ export default function WithdrawalAdminPage() {
               </div>
               <div>
                 <h3 className="text-sm font-black text-white">Withdrawal Limit</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">Set min and max per request (Rupees).</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Set min and max per request (Rupieer).</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

@@ -1,12 +1,7 @@
 const pool = require('../config/database');
-const { ADMIN_ROLE_ALIASES, normalizeRole } = require('../../shared/contracts/userRoles');
+const { normalizeRole } = require('../../shared/contracts/userRoles');
 
-const parseList = (value) => String(value || '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-
-const allowedRoles = new Set(ADMIN_ROLE_ALIASES);
+const allowedRoles = new Set(['admin', 'super_admin', 'superadmin']);
 
 const adminOnly = async (req, res, next) => {
     try {
@@ -15,13 +10,8 @@ const adminOnly = async (req, res, next) => {
             return res.status(401).json({ success: false, message: 'Authentication required' });
         }
 
-        const tokenUserType = normalizeRole(req.user?.user_type);
-        if (allowedRoles.has(tokenUserType)) {
-            return next();
-        }
-
         const result = await pool.query(
-            `SELECT id, username, user_type
+            `SELECT id, user_type, status, is_deactivated, marked_for_deletion_at
              FROM users
              WHERE id = $1
              LIMIT 1`,
@@ -30,30 +20,16 @@ const adminOnly = async (req, res, next) => {
 
         const user = result.rows[0];
         const userType = normalizeRole(user?.user_type);
-        const allowedIds = parseList(process.env.ADMIN_ACCESS_USER_IDS);
-        const allowedUsernames = parseList(process.env.ADMIN_ACCESS_USERNAMES);
+        const isActive = user
+            && !user.is_deactivated
+            && !user.marked_for_deletion_at
+            && normalizeRole(user.status || 'active') !== 'deactivated';
 
-        if (
-            allowedRoles.has(userType) ||
-            allowedIds.includes(String(user?.id)) ||
-            allowedUsernames.includes(String(user?.username || '').toLowerCase())
-        ) {
+        if (isActive && allowedRoles.has(userType)) {
             return next();
         }
 
-        const privilegedCount = await pool.query(
-            `SELECT COUNT(*)::int AS count
-             FROM users
-             WHERE LOWER(REPLACE(REPLACE(TRIM(COALESCE(user_type, '')), ' ', '_'), '-', '_'))
-                   IN ('admin', 'super_admin', 'superadmin', 'employee', 'administrator')`
-        );
-
-        if (Number(privilegedCount.rows[0]?.count || 0) === 0) {
-            console.warn('Admin access bootstrap mode: no privileged users exist yet. Allowing authenticated user.');
-            return next();
-        }
-
-            return res.status(403).json({ success: false, message: 'Admin access required' });
+        return res.status(403).json({ success: false, message: 'Access denied. Only Admin or Super Admin accounts can use this panel.' });
     } catch (error) {
         console.error('Admin access error:', error);
         return res.status(500).json({ success: false, message: 'Failed to verify admin access' });

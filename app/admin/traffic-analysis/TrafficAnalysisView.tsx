@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import IonIcon from "../../components/IonIcon";
 import { adminService } from "../../services/adminService";
 
@@ -144,6 +144,213 @@ function MiniBarChart({
     );
 }
 
+/* ── Server Capacity Planner ─────────────────────────────────────────────
+   Small boxes for each hosting option + shared components with estimated
+   market price ranges (EUR/month). Pick a target concurrent-user level and
+   the panel live-computes supported DAU and highlights the best-fit server. */
+
+const SERVER_TIERS = [
+    {
+        key: "vps",
+        name: "Cloud VPS (shared)",
+        spec: "12 vCPU · 48 GB RAM · NVMe",
+        example: "Contabo VPS 40 class",
+        priceMin: 25,
+        priceMax: 40,
+        maxConcurrent: 4000,
+        note: "Shared cores — performance varies with host neighbors",
+    },
+    {
+        key: "dedicated",
+        name: "Dedicated bare-metal",
+        spec: "Ryzen 9 7900 · 12C/24T · 64 GB",
+        example: "Hetzner AX / Contabo dedicated class",
+        priceMin: 105,
+        priceMax: 150,
+        maxConcurrent: 12000,
+        note: "Consistent dedicated cores, ~2-3× VPS per-core speed",
+    },
+    {
+        key: "cluster",
+        name: "2× Dedicated + Load Balancer",
+        spec: "24C/48T total · 128 GB · HA failover",
+        example: "Two nodes behind Cloudflare LB",
+        priceMin: 220,
+        priceMax: 320,
+        maxConcurrent: 25000,
+        note: "No single point of failure; add nodes to keep scaling",
+    },
+];
+
+const COMPONENT_COSTS = [
+    { key: "db", name: "Managed PostgreSQL", detail: "RDS / managed class, 2-4 vCPU", priceMin: 15, priceMax: 60, flag: "separateDatabase" },
+    { key: "s3", name: "S3 Object Storage", detail: "media bucket + requests", priceMin: 5, priceMax: 25, flag: "objectStorageConfigured" },
+    { key: "cdn", name: "CDN (Cloudflare)", detail: "static + media edge cache", priceMin: 0, priceMax: 20, flag: null },
+    { key: "redis", name: "Redis cache", detail: "in Docker (free) or managed", priceMin: 0, priceMax: 15, flag: "redisConfigured" },
+];
+
+// DAU ≈ peak concurrent × 12-20 (peak concurrency is ~5-8% of DAU for social apps)
+const DAU_MIN_FACTOR = 12;
+const DAU_MAX_FACTOR = 20;
+
+function CapacityPlanner({
+    overview,
+    currentServer,
+    currentCapacity,
+    liveConcurrent,
+}: {
+    overview: any;
+    currentServer: any;
+    currentCapacity: number;
+    liveConcurrent: number;
+}) {
+    const [target, setTarget] = useState(5000);
+
+    const dauMin = target * DAU_MIN_FACTOR;
+    const dauMax = target * DAU_MAX_FACTOR;
+    const peakRps = Math.round(target * 0.4);
+    const recommended = SERVER_TIERS.find((tier) => tier.maxConcurrent >= target * 1.25) || SERVER_TIERS[SERVER_TIERS.length - 1];
+    const componentsMin = COMPONENT_COSTS.reduce((sum, item) => sum + item.priceMin, 0);
+    const componentsMax = COMPONENT_COSTS.reduce((sum, item) => sum + item.priceMax, 0);
+    const totalMin = recommended.priceMin + componentsMin;
+    const totalMax = recommended.priceMax + componentsMax;
+    const currentCovers = currentCapacity >= target;
+
+    return (
+        <div className="rounded-3xl border border-[#1a1a1a] bg-[#09090b] p-6">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <h2 className="text-lg font-bold text-white">Server Capacity Planner</h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                        Pick a concurrent-user target — supported DAU and the best-fit server update live. Prices are estimated market ranges (EUR/month).
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-200">
+                    Now live: {formatNumber(liveConcurrent)} concurrent
+                </div>
+            </div>
+
+            {/* target selector */}
+            <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Target concurrent users</p>
+                    <div className="flex gap-2">
+                        {[1000, 3000, 5000, 10000, 20000].map((preset) => (
+                            <button
+                                key={preset}
+                                onClick={() => setTarget(preset)}
+                                className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] transition ${
+                                    target === preset
+                                        ? "border-cyan-500/40 bg-cyan-500/20 text-cyan-100"
+                                        : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                                }`}
+                            >
+                                {preset >= 1000 ? `${preset / 1000}k` : preset}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div className="mt-4 flex items-center gap-4">
+                    <input
+                        type="range"
+                        min={100}
+                        max={25000}
+                        step={100}
+                        value={target}
+                        onChange={(event) => setTarget(Number(event.target.value))}
+                        className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white/10 accent-cyan-400"
+                    />
+                    <span className="w-24 text-right text-2xl font-bold text-white">{formatNumber(target)}</span>
+                </div>
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300/70">Supported DAU</p>
+                        <p className="mt-2 text-xl font-bold text-white">{formatNumber(dauMin)} – {formatNumber(dauMax)}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">daily active users at this concurrency</p>
+                    </div>
+                    <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-300/70">Peak load</p>
+                        <p className="mt-2 text-xl font-bold text-white">~{formatNumber(peakRps)} req/s</p>
+                        <p className="mt-1 text-[11px] text-slate-500">API requests at peak (excl. CDN traffic)</p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300/70">Estimated total cost</p>
+                        <p className="mt-2 text-xl font-bold text-white">€{formatNumber(totalMin)} – €{formatNumber(totalMax)}<span className="text-xs text-slate-500"> /mo</span></p>
+                        <p className="mt-1 text-[11px] text-slate-500">best-fit server + all components</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* server boxes */}
+            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className={`rounded-2xl border p-4 ${currentCovers ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/10 bg-black/30"}`}>
+                    <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-bold text-white">Current server</p>
+                        {currentCovers ? (
+                            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-emerald-200">Covers target</span>
+                        ) : (
+                            <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-rose-200">Below target</span>
+                        )}
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                        {formatNumber(currentServer.cpuCores || 0)} cores · {formatBytes(currentServer.totalMemoryBytes)} RAM
+                    </p>
+                    <p className="mt-3 text-lg font-bold text-white">≈ {formatNumber(currentCapacity)} concurrent</p>
+                    <p className="text-[11px] text-slate-500">≈ {formatNumber(currentCapacity * DAU_MIN_FACTOR)} – {formatNumber(currentCapacity * DAU_MAX_FACTOR)} DAU</p>
+                    <p className="mt-2 text-[10px] text-slate-600">live estimate from this machine's signals</p>
+                </div>
+                {SERVER_TIERS.map((tier) => {
+                    const isBest = tier.key === recommended.key;
+                    const covers = tier.maxConcurrent >= target;
+                    return (
+                        <div key={tier.key} className={`relative rounded-2xl border p-4 ${isBest ? "border-cyan-500/40 bg-cyan-500/10" : "border-white/10 bg-black/30"}`}>
+                            {isBest && (
+                                <span className="absolute -top-2.5 right-4 rounded-full border border-cyan-400/40 bg-[#0a2a33] px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-cyan-200">
+                                    Best fit
+                                </span>
+                            )}
+                            <p className="text-sm font-bold text-white">{tier.name}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">{tier.spec}</p>
+                            <p className="text-[10px] text-slate-600">{tier.example}</p>
+                            <p className="mt-3 text-lg font-bold text-white">
+                                €{tier.priceMin}–{tier.priceMax}<span className="text-xs text-slate-500"> /mo</span>
+                            </p>
+                            <p className={`text-[11px] ${covers ? "text-emerald-300/80" : "text-slate-500"}`}>
+                                up to ≈ {formatNumber(tier.maxConcurrent)} concurrent
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                                ≈ {formatNumber(tier.maxConcurrent * DAU_MIN_FACTOR)} – {formatNumber(tier.maxConcurrent * DAU_MAX_FACTOR)} DAU
+                            </p>
+                            <p className="mt-2 text-[10px] leading-relaxed text-slate-600">{tier.note}</p>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* component boxes */}
+            <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+                {COMPONENT_COSTS.map((item) => {
+                    const active = item.flag ? Boolean(overview?.[item.flag]) : true;
+                    return (
+                        <div key={item.key} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-bold text-white">{item.name}</p>
+                                <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] ${
+                                    active ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border border-amber-500/30 bg-amber-500/10 text-amber-200"
+                                }`}>
+                                    {active ? "In use" : "Not set"}
+                                </span>
+                            </div>
+                            <p className="mt-2 text-sm font-bold text-white">€{item.priceMin}–{item.priceMax}<span className="text-[10px] text-slate-500"> /mo</span></p>
+                            <p className="mt-1 text-[10px] text-slate-600">{item.detail}</p>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 export default function TrafficAnalysisView({ section }: { section: TrafficAnalysisSection }) {
     const [analysis, setAnalysis] = useState<TrafficAnalysisPayload | null>(null);
     const [loading, setLoading] = useState(true);
@@ -173,6 +380,38 @@ export default function TrafficAnalysisView({ section }: { section: TrafficAnaly
         return () => window.clearInterval(interval);
     }, [loadAnalysis]);
 
+    // ── Live pulse: lightweight presence counts polled every 2s ──
+    // The heavy full analysis stays on 30s; this keeps the concurrent-user
+    // counter genuinely live (bounded by the app's presence heartbeat, not the page).
+    const [pulse, setPulse] = useState<any | null>(null);
+    const [delta, setDelta] = useState(0);
+    const prevConcurrentRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        let stopped = false;
+        const poll = async () => {
+            if (document.visibilityState !== "visible") return;
+            try {
+                const p = await adminService.fetchTrafficPulse();
+                if (stopped || !p?.success || p?.available === false) return;
+                setPulse(p);
+                const current = numberValue(p.activeConcurrentUsers);
+                if (prevConcurrentRef.current !== null && current !== prevConcurrentRef.current) {
+                    setDelta(current - prevConcurrentRef.current);
+                }
+                prevConcurrentRef.current = current;
+            } catch {
+                /* pulse failures are silent — the 30s full refresh still covers the page */
+            }
+        };
+        void poll();
+        const id = window.setInterval(poll, 2000);
+        return () => {
+            stopped = true;
+            window.clearInterval(id);
+        };
+    }, []);
+
     const overview = analysis?.overview || {};
     const liveTraffic = analysis?.liveTraffic || {};
     const performance = analysis?.performance || {};
@@ -181,7 +420,10 @@ export default function TrafficAnalysisView({ section }: { section: TrafficAnaly
     const widgets = analysis?.widgets || {};
     const alerts = analysis?.alerts?.items || [];
     const recommendations = analysis?.alerts?.recommendations || [];
-    const recentUsers = analysis?.recentUsers || liveTraffic.recentUsers || [];
+    // pulse (2s) overrides the slower 30s payload for the live numbers
+    const live = pulse?.available !== false && pulse ? { ...liveTraffic, ...pulse } : liveTraffic;
+    const recentUsers = (pulse?.recentUsers?.length ? pulse.recentUsers : null)
+        || analysis?.recentUsers || liveTraffic.recentUsers || [];
     const server = overview.server || {};
     const database = overview.database || {};
     const storage = overview.storage || {};
@@ -189,24 +431,27 @@ export default function TrafficAnalysisView({ section }: { section: TrafficAnaly
     const headlineCards = useMemo(() => ([
         {
             title: "Live Concurrent Users",
-            value: formatNumber(liveTraffic.activeConcurrentUsers),
-            detail: `${formatNumber(liveTraffic.onlineUsers)} online right now`,
+            value: formatNumber(live.activeConcurrentUsers),
+            detail: `${formatNumber(live.onlineUsers)} online right now`,
             icon: "people-outline",
             tone: "text-cyan-300 border-cyan-500/20 bg-cyan-500/10",
+            isLive: true,
         },
         {
             title: "Daily Active Users",
-            value: formatNumber(liveTraffic.dailyActiveUsers),
-            detail: `${formatNumber(liveTraffic.monthlyActiveUsers)} monthly active`,
+            value: formatNumber(live.dailyActiveUsers),
+            detail: `${formatNumber(live.monthlyActiveUsers)} monthly active`,
             icon: "pulse-outline",
             tone: "text-blue-300 border-blue-500/20 bg-blue-500/10",
+            isLive: false,
         },
         {
             title: "Requests Per Second",
-            value: formatNumber(liveTraffic.requestsPerSecond, 2),
+            value: formatNumber(live.requestsPerSecond, 2),
             detail: `${formatMs(liveTraffic.apiResponseTimes?.averageMs)} average response`,
             icon: "flash-outline",
             tone: "text-violet-300 border-violet-500/20 bg-violet-500/10",
+            isLive: false,
         },
         {
             title: "Estimated Capacity",
@@ -214,8 +459,9 @@ export default function TrafficAnalysisView({ section }: { section: TrafficAnaly
             detail: `${formatPercent(scalability.currentUtilizationPercent)} utilized`,
             icon: "bar-chart-outline",
             tone: "text-emerald-300 border-emerald-500/20 bg-emerald-500/10",
+            isLive: false,
         },
-    ]), [liveTraffic, scalability]);
+    ]), [live, liveTraffic, scalability]);
 
     const tabs: Array<{ key: TrafficAnalysisSection; label: string; href: string; icon: string; detail: string }> = [
         { key: "overview", label: "Overview", href: "/admin/traffic-analysis/overview", icon: "albums-outline", detail: "Infrastructure and health" },
@@ -238,7 +484,7 @@ export default function TrafficAnalysisView({ section }: { section: TrafficAnaly
                 </div>
                 <div className="flex items-center gap-3">
                     <span className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-600">
-                        Updated {formatTimeAgo(analysis?.generatedAt)}
+                        Updated {formatTimeAgo(pulse?.generatedAt || analysis?.generatedAt)}
                     </span>
                     <button
                         onClick={() => void loadAnalysis(true)}
@@ -289,15 +535,41 @@ export default function TrafficAnalysisView({ section }: { section: TrafficAnaly
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {headlineCards.map((card) => (
                     <div key={card.title} className="rounded-3xl border border-[#1a1a1a] bg-[#09090b] p-5">
-                        <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border ${card.tone}`}>
-                            <IonIcon name={card.icon} className="text-xl" />
+                        <div className="flex items-start justify-between">
+                            <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border ${card.tone}`}>
+                                <IonIcon name={card.icon} className="text-xl" />
+                            </div>
+                            {card.isLive && pulse && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-emerald-200">
+                                    <span className="relative flex h-1.5 w-1.5">
+                                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                    </span>
+                                    Live 2s
+                                </span>
+                            )}
                         </div>
                         <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{card.title}</p>
-                        <div className="mt-2 text-3xl font-bold text-white">{loading ? "..." : card.value}</div>
+                        <div className="mt-2 flex items-baseline gap-2">
+                            <span className="text-3xl font-bold text-white">{loading && !pulse ? "..." : card.value}</span>
+                            {card.isLive && delta !== 0 && (
+                                <span className={`inline-flex items-center gap-0.5 text-sm font-black ${delta > 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                                    <IonIcon name={delta > 0 ? "caret-up" : "caret-down"} className="text-xs" />
+                                    {Math.abs(delta)}
+                                </span>
+                            )}
+                        </div>
                         <p className="mt-2 text-xs text-slate-500">{card.detail}</p>
                     </div>
                 ))}
             </div>
+
+            <CapacityPlanner
+                overview={overview}
+                currentServer={server}
+                currentCapacity={numberValue(scalability.estimatedMaximumConcurrentUsers)}
+                liveConcurrent={numberValue(live.activeConcurrentUsers)}
+            />
 
             {section === "overview" && (
                 <>
@@ -319,7 +591,15 @@ export default function TrafficAnalysisView({ section }: { section: TrafficAnaly
                                     ["Memory", `${formatBytes(server.usedMemoryBytes)} / ${formatBytes(server.totalMemoryBytes)}`, `Usage: ${formatPercent(server.memoryUsagePercent)}`],
                                     ["Disk", `${formatBytes(server.disk?.usedBytes)} / ${formatBytes(server.disk?.totalBytes)}`, `Usage: ${formatPercent(server.disk?.usagePercent)}`],
                                     ["Database", `${formatNumber(database.activeConnections)} / ${formatNumber(database.totalSessions)} sessions`, `Size: ${formatBytes(database.sizeBytes)}`],
-                                    ["Storage", formatBytes(storage.localUploadBytes), overview.objectStorageConfigured ? "Object storage configured" : "Local/media storage signal"],
+                                    [
+                                        "Storage",
+                                        formatBytes(storage.source === "s3" ? storage.objectStorageBytes : storage.localUploadBytes),
+                                        storage.source === "s3"
+                                            ? `S3 bucket usage - ${formatNumber(storage.objectCount)} objects`
+                                            : overview.objectStorageConfigured
+                                                ? "S3 usage unavailable - showing local uploads"
+                                                : "Local/media storage usage",
+                                    ],
                                 ].map(([label, value, detail]) => (
                                     <div key={label} className="rounded-2xl border border-white/10 bg-black/30 p-4">
                                         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-600">{label}</p>

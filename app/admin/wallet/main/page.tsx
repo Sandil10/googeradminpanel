@@ -617,6 +617,7 @@ export default function WalletSystemTopup() {
             await adminService.transferGoogerToAdmin(utSelected.id, Number(utAmount));
             setUtSuccess(`R ${Number(utAmount).toFixed(2)} transferred to ${utSelected.full_name || utSelected.username}.`);
             setGoogerBalance(prev => prev - Number(utAmount));
+            void fetchBalances();
             setUtAmount(''); setUtNote(''); setUtSelected(null);
             setUtPasswordStep(false); setUtPassword('');
             if (utTab === 'history') loadUtHistory();
@@ -626,10 +627,12 @@ export default function WalletSystemTopup() {
 
     const fetchBalances = async () => {
         try {
-            const p = await authService.getProfile();
+            const [p, s] = await Promise.all([
+                authService.getProfile(),
+                adminService.fetchStats(),
+            ]);
             setUserBalance(parseFloat(p.wallet_balance) || 0);
-            const s = await adminService.fetchStats();
-            setGoogerBalance(s.googerBalance || 0);
+            setGoogerBalance(Number(s.googerBalance || 0));
         } catch (e) { console.error(e); }
     };
 
@@ -684,6 +687,7 @@ export default function WalletSystemTopup() {
             setCapSuccess(`R ${Number(capitalAmount).toFixed(2)} added to your wallet.`);
             setCapitalAmount('');
             setUserBalance(result.newBalance);
+            void fetchBalances();
         } catch (err: any) { setCapError(err.message || 'Failed to add capital'); }
         finally { setCapSubmitting(false); }
     };
@@ -1094,10 +1098,10 @@ export default function WalletSystemTopup() {
                                     <div className="flex h-7 w-7 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white/45">
                                         <IonIcon name="wallet-outline" className="text-xs" />
                                     </div>
-                                    <p className="text-[8px] font-black uppercase tracking-[0.18em] text-white/35">Total Users Balance</p>
+                                    <p className="text-[8px] font-black uppercase tracking-[0.18em] text-white/35">Available Capital</p>
                                 </div>
                                 <p className="text-lg font-black tracking-tight text-white">R {userBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
-                                <p className="mt-0.5 text-[8px] font-bold text-white/35">Personal Wallet Funds</p>
+                                <p className="mt-0.5 text-[8px] font-bold text-white/35">Available to transfer</p>
                             </div>
                             <div className="border-t border-white/[0.06] px-3 py-2.5 space-y-2">
                                 <div className="flex gap-1.5">
@@ -1203,7 +1207,7 @@ export default function WalletSystemTopup() {
             {showTransferModal && (
                 <TransferModal
                     userBalance={userBalance}
-                    onSuccess={(newBal) => { setUserBalance(newBal); setShowTransferModal(false); }}
+                    onSuccess={(newBal) => { setUserBalance(newBal); setShowTransferModal(false); void fetchBalances(); }}
                     onClose={() => setShowTransferModal(false)}
                 />
             )}

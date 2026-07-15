@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { toManagedMediaUrl } from "../../utils/mediaUrl";
 
-type Tab = "googs" | "goog-comments" | "orders" | "product-comments" | "profiles" | "ads";
+type Tab = "googs" | "goog-comments" | "orders" | "product-comments" | "profiles" | "contents" | "ads";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "googs", label: "Goog Posts" },
@@ -12,6 +12,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "orders", label: "Order Disputes" },
   { key: "product-comments", label: "Product Comments" },
   { key: "profiles", label: "Profiles" },
+  { key: "contents", label: "Contents" },
   { key: "ads", label: "Ads & Products" },
 ];
 
@@ -169,10 +170,10 @@ function parseReport(raw: any) {
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("googs");
-  const [data, setData] = useState<Record<Tab, any[]>>({ googs: [], "goog-comments": [], orders: [], "product-comments": [], profiles: [], ads: [] });
-  const [loading, setLoading] = useState<Record<Tab, boolean>>({ googs: false, "goog-comments": false, orders: false, "product-comments": false, profiles: false, ads: false });
+  const [data, setData] = useState<Record<Tab, any[]>>({ googs: [], "goog-comments": [], orders: [], "product-comments": [], profiles: [], contents: [], ads: [] });
+  const [loading, setLoading] = useState<Record<Tab, boolean>>({ googs: false, "goog-comments": false, orders: false, "product-comments": false, profiles: false, contents: false, ads: false });
   const [search, setSearch] = useState("");
-  const [counts, setCounts] = useState<Record<Tab, number>>({ googs: 0, "goog-comments": 0, orders: 0, "product-comments": 0, profiles: 0, ads: 0 });
+  const [counts, setCounts] = useState<Record<Tab, number>>({ googs: 0, "goog-comments": 0, orders: 0, "product-comments": 0, profiles: 0, contents: 0, ads: 0 });
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
   const headers = { Authorization: `Bearer ${token}` };
@@ -490,6 +491,70 @@ export default function ReportsPage() {
             </div>
 
           /* ── ADS & PRODUCTS ── */
+          ) : tab === "contents" ? (
+            <div className="divide-y divide-white/5">
+              {filtered.map((r: any) => {
+                const typeLabel = String(r.content_type || "vault").toLowerCase() === "flash" ? "Flash Content" : "Vault Content";
+                const preview = toManagedMediaUrl(r.thumbnail_url || r.media_preview || "") || "";
+                return (
+                  <div key={`content-${r.id}`} className="p-5 hover:bg-white/[0.02] transition-colors">
+                    <div className="flex items-center gap-2 mb-4 flex-wrap">
+                      <StatusBadge status={r.status || "pending"} />
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-cyan-500/10 text-cyan-300">
+                        {typeLabel}
+                      </span>
+                      <span className="text-white/25 text-[10px]">{timeAgo(r.created_at)}</span>
+                      <span className="text-white/40 text-[10px] font-mono ml-2">
+                        Content #{r.public_content_id || r.internal_content_id}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-[88px_1fr] gap-4">
+                      <div className="relative h-24 w-24 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+                        {preview ? (
+                          <Image unoptimized src={preview} alt={r.description || typeLabel} fill sizes="96px" className="object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[10px] font-black uppercase tracking-widest text-white/25">
+                            No media
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-white/80 text-sm font-black truncate">{r.description || r.topic || typeLabel}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-white/35">
+                          <span>Topic: <span className="text-white/60 font-bold">{r.topic || "—"}</span></span>
+                          <span>Price: <span className="text-white/60 font-bold">R {Number(r.price || 0).toLocaleString()}</span></span>
+                          <span>Status: <span className="text-white/60 font-bold">{r.content_status || "—"}</span></span>
+                          <span>Reports: <span className="text-rose-300 font-bold">{Number(r.reports_count || 1)}</span></span>
+                        </div>
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <UserCard
+                            label="Content owner"
+                            username={r.owner_username}
+                            fullName={r.owner_name}
+                            publicId={r.owner_public_id}
+                            dbId={r.owner_db_id}
+                            profilePicture={r.owner_profile_picture}
+                          />
+                          <UserCard
+                            label="Reported by"
+                            username={r.reporter_username}
+                            fullName={r.reporter_name}
+                            publicId={r.reporter_public_id}
+                            dbId={r.reporter_db_id}
+                            profilePicture={r.reporter_profile_picture}
+                          />
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-white/30">Reason</span>
+                            <span className="text-white/80 text-[11px] font-bold">{r.reason || "—"}</span>
+                            {r.custom_reason && <span className="text-white/40 text-[10px] italic">{r.custom_reason}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
             <div className="divide-y divide-white/5">
               {filtered.map((r: any) => {

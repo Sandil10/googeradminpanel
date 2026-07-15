@@ -30,7 +30,7 @@ const normalizeRole = (value: unknown) =>
 
 const isAdminRole = (value: unknown) => {
     const normalized = normalizeRole(value);
-    return ['admin', 'super_admin', 'superadmin', 'employee', 'administrator'].includes(normalized);
+    return ['admin', 'super_admin', 'superadmin'].includes(normalized);
 };
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
@@ -72,7 +72,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 
         if (pathStr === 'login' && upstream.ok && !isAdminRole(parsed?.user?.user_type)) {
             return NextResponse.json(
-                { success: false, message: 'Access denied. Only admin accounts can log in here.' },
+                { success: false, message: 'Access denied. Only Admin or Super Admin accounts can log in here.' },
                 { status: 403 },
             );
         }

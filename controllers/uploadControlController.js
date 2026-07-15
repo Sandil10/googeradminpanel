@@ -148,6 +148,16 @@ const normalizeContentStatus = (value) => {
     return 'Pending Approval';
 };
 
+const parseJsonField = (value, fallback) => {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
+};
+
 const normalizeVisibility = (value) => {
     const normalized = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
     return ['public', 'subscribers_only', 'private'].includes(normalized) ? normalized : 'public';
@@ -168,13 +178,11 @@ const toUtcIso = (value) => {
 const mapUploadContentRow = (row) => {
     const mediaGallery = Array.isArray(row?.media_gallery)
         ? row.media_gallery
-        : (() => {
-            try {
-                return JSON.parse(row?.media_gallery || '[]');
-            } catch {
-                return [];
-            }
-        })();
+        : parseJsonField(row?.media_gallery, []);
+    const subscriptionPackages = Array.isArray(row?.subscription_packages)
+        ? row.subscription_packages
+        : parseJsonField(row?.subscription_packages, []);
+    const pendingEdit = parseJsonField(row?.pending_edit, null);
 
     return {
         id: row.id,
@@ -187,8 +195,10 @@ const mapUploadContentRow = (row) => {
         description: row.description || '',
         topic: row.topic || DEFAULT_SETTINGS.default_topic,
         price: Number(row.price || 0),
-        subscription_packages: Array.isArray(row?.subscription_packages) ? row.subscription_packages : [],
+        subscription_packages: subscriptionPackages,
         affiliate_commission: Number(row.affiliate_commission || 0),
+        hashtags: parseJsonField(row.hashtags, []),
+        allow_comments: row.allow_comments !== false,
         show_link_on_home: !!row.show_link_on_home,
         external_link: row.external_link || '',
         media_type: row.media_type || '',
@@ -207,9 +217,13 @@ const mapUploadContentRow = (row) => {
         video_original_duration_seconds: Number(row.video_original_duration_seconds || 0),
         videoOriginalDurationSeconds: Number(row.video_original_duration_seconds || 0),
         visibility: normalizeVisibility(row.visibility),
-        status: normalizeContentStatus(row.status),
+        status: pendingEdit ? 'Pending Approval' : normalizeContentStatus(row.status),
         rejection_reason: row.rejection_reason || null,
         admin_note: row.admin_note || null,
+        pending_edit_status: pendingEdit ? 'Pending Approval' : (row.pending_edit_status || null),
+        has_pending_edit: !!pendingEdit,
+        pending_edit: pendingEdit,
+        pending_edit_submitted_at: toUtcIso(row.pending_edit_submitted_at),
         created_at: toUtcIso(row.created_at),
         updated_at: toUtcIso(row.updated_at),
         approved_at: toUtcIso(row.approved_at),
@@ -221,6 +235,18 @@ const mapUploadContentRow = (row) => {
         comments_count: Number(row.comments_count || 0),
         shares_count: Number(row.shares_count || 0),
         views_count: Number(row.views_count || 0),
+    };
+};
+
+const buildPendingEditReviewRow = (row) => {
+    const pendingEdit = parseJsonField(row?.pending_edit, null);
+    if (!pendingEdit || typeof pendingEdit !== 'object') return row;
+    return {
+        ...row,
+        ...pendingEdit,
+        status: 'Pending Approval',
+        pending_edit: pendingEdit,
+        pending_edit_status: 'Pending Approval',
     };
 };
 
@@ -395,6 +421,8 @@ exports.getUploadContentsAdmin = async (req, res) => {
                 price NUMERIC(12, 2) NOT NULL DEFAULT 0,
                 subscription_packages JSONB NOT NULL DEFAULT '[]'::jsonb,
                 affiliate_commission NUMERIC(8, 2) NOT NULL DEFAULT 0,
+                hashtags JSONB NOT NULL DEFAULT '[]'::jsonb,
+                allow_comments BOOLEAN NOT NULL DEFAULT true,
                 show_link_on_home BOOLEAN NOT NULL DEFAULT false,
                 external_link TEXT,
                 media_type VARCHAR(20) NOT NULL DEFAULT '',
@@ -408,6 +436,9 @@ exports.getUploadContentsAdmin = async (req, res) => {
                 status VARCHAR(30) NOT NULL DEFAULT 'Pending Approval',
                 rejection_reason TEXT,
                 admin_note TEXT,
+                pending_edit JSONB NULL,
+                pending_edit_status VARCHAR(30) NULL,
+                pending_edit_submitted_at TIMESTAMP NULL,
                 approved_at TIMESTAMP NULL,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -416,17 +447,25 @@ exports.getUploadContentsAdmin = async (req, res) => {
         await pool.query(`
             ALTER TABLE upload_contents
             ADD COLUMN IF NOT EXISTS content_type VARCHAR(20) NOT NULL DEFAULT 'vault',
+            ADD COLUMN IF NOT EXISTS hashtags JSONB NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS allow_comments BOOLEAN NOT NULL DEFAULT true,
             ADD COLUMN IF NOT EXISTS visibility VARCHAR(24) NOT NULL DEFAULT 'public',
             ADD COLUMN IF NOT EXISTS preview_mode VARCHAR(20) NOT NULL DEFAULT 'thumbnail',
-            ADD COLUMN IF NOT EXISTS preview_url TEXT
+            ADD COLUMN IF NOT EXISTS preview_url TEXT,
+            ADD COLUMN IF NOT EXISTS pending_edit JSONB NULL,
+            ADD COLUMN IF NOT EXISTS pending_edit_status VARCHAR(30) NULL,
+            ADD COLUMN IF NOT EXISTS pending_edit_submitted_at TIMESTAMP NULL
         `);
 
         const status = String(req.query.status || '').trim();
         const params = [];
         let where = '';
         if (status) {
-            params.push(normalizeContentStatus(status));
-            where = `WHERE uc.status = $${params.length}`;
+            const normalizedStatus = normalizeContentStatus(status);
+            params.push(normalizedStatus);
+            where = normalizedStatus === 'Pending Approval'
+                ? `WHERE (uc.status = $${params.length} OR uc.pending_edit IS NOT NULL)`
+                : `WHERE uc.status = $${params.length} AND ($${params.length} <> 'Approved' OR uc.pending_edit IS NULL)`;
         }
 
         const { rows } = await pool.query(`
@@ -438,7 +477,7 @@ exports.getUploadContentsAdmin = async (req, res) => {
         `, params);
 
         const contents = rows.map((row) => {
-            const mapped = mapUploadContentRow(row);
+            const mapped = mapUploadContentRow(buildPendingEditReviewRow(row));
             return {
                 ...mapped,
                 likes_count: Number(mapped.likes_count || 0),
@@ -469,21 +508,112 @@ exports.updateUploadContentStatusAdmin = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Rejection reason is required' });
         }
 
-        const { rows } = await pool.query(`
-            UPDATE upload_contents
-            SET status = $2::varchar,
-                rejection_reason = $3,
-                admin_note = $4,
-                approved_at = CASE WHEN $2::varchar = 'Approved' THEN CURRENT_TIMESTAMP ELSE NULL END,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE content_id = $1
-            RETURNING *
-        `, [
-            contentId,
-            requestedStatus,
-            requestedStatus === 'Rejected' ? rejectionReason : null,
-            adminNote || null,
-        ]);
+        const currentResult = await pool.query(
+            'SELECT * FROM upload_contents WHERE content_id = $1 LIMIT 1',
+            [contentId]
+        );
+        if (!currentResult.rows.length) {
+            return res.status(404).json({ success: false, message: 'Upload content not found' });
+        }
+        const current = currentResult.rows[0];
+        const pendingEdit = parseJsonField(current.pending_edit, null);
+        let rows;
+        if (pendingEdit && typeof pendingEdit === 'object') {
+            if (requestedStatus === 'Approved') {
+                ({ rows } = await pool.query(`
+                    UPDATE upload_contents
+                    SET content_type = $2,
+                        description = $3,
+                        topic = $4,
+                        price = $5,
+                        subscription_packages = $6::jsonb,
+                        affiliate_commission = $7,
+                        hashtags = $8::jsonb,
+                        allow_comments = $9,
+                        show_link_on_home = $10,
+                        external_link = $11,
+                        media_type = $12,
+                        media_preview = $13,
+                        media_gallery = $14::jsonb,
+                        thumbnail_url = $15,
+                        content_access_mode = $16,
+                        visibility = $17,
+                        preview_mode = $18,
+                        preview_url = $19,
+                        video_duration_seconds = $20,
+                        video_trim_start_seconds = $21,
+                        video_trim_end_seconds = $22,
+                        video_original_duration_seconds = $23,
+                        status = 'Approved',
+                        rejection_reason = NULL,
+                        admin_note = $24,
+                        pending_edit = NULL,
+                        pending_edit_status = NULL,
+                        pending_edit_submitted_at = NULL,
+                        approved_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE content_id = $1
+                    RETURNING *
+                `, [
+                    contentId,
+                    pendingEdit.content_type,
+                    pendingEdit.description,
+                    pendingEdit.topic,
+                    Number(pendingEdit.price || 0),
+                    JSON.stringify(Array.isArray(pendingEdit.subscription_packages) ? pendingEdit.subscription_packages : []),
+                    Number(pendingEdit.affiliate_commission || 0),
+                    JSON.stringify(Array.isArray(pendingEdit.hashtags) ? pendingEdit.hashtags : []),
+                    pendingEdit.allow_comments !== false,
+                    !!pendingEdit.show_link_on_home,
+                    pendingEdit.external_link || null,
+                    pendingEdit.media_type || '',
+                    pendingEdit.media_preview || null,
+                    JSON.stringify(Array.isArray(pendingEdit.media_gallery) ? pendingEdit.media_gallery : []),
+                    pendingEdit.thumbnail_url || null,
+                    pendingEdit.content_access_mode || 'unblurred',
+                    normalizeVisibility(pendingEdit.visibility),
+                    pendingEdit.preview_mode || 'thumbnail',
+                    pendingEdit.preview_url || null,
+                    Number(pendingEdit.video_duration_seconds || 0),
+                    Number(pendingEdit.video_trim_start_seconds || 0),
+                    Number(pendingEdit.video_trim_end_seconds || 0),
+                    Number(pendingEdit.video_original_duration_seconds || 0),
+                    adminNote || null,
+                ]));
+            } else {
+                ({ rows } = await pool.query(`
+                    UPDATE upload_contents
+                    SET pending_edit = NULL,
+                        pending_edit_status = NULL,
+                        pending_edit_submitted_at = NULL,
+                        rejection_reason = $2,
+                        admin_note = $3,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE content_id = $1
+                    RETURNING *
+                `, [
+                    contentId,
+                    rejectionReason || null,
+                    adminNote || null,
+                ]));
+            }
+        } else {
+            ({ rows } = await pool.query(`
+                UPDATE upload_contents
+                SET status = $2::varchar,
+                    rejection_reason = $3,
+                    admin_note = $4,
+                    approved_at = CASE WHEN $2::varchar = 'Approved' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE content_id = $1
+                RETURNING *
+            `, [
+                contentId,
+                requestedStatus,
+                requestedStatus === 'Rejected' ? rejectionReason : null,
+                adminNote || null,
+            ]));
+        }
 
         if (!rows.length) {
             return res.status(404).json({ success: false, message: 'Upload content not found' });

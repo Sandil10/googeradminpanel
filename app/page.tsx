@@ -13,7 +13,7 @@ const normalizeRole = (value: unknown) =>
 
 const isAdminRole = (value: unknown) => {
   const normalized = normalizeRole(value);
-  return ["admin", "super_admin", "superadmin", "employee", "administrator"].includes(normalized);
+  return ["admin", "super_admin", "superadmin"].includes(normalized);
 };
 
 export default function LoginPage() {
@@ -55,6 +55,11 @@ export default function LoginPage() {
 
       if (!res.ok || !data?.token) {
         setError(data?.message || "Invalid credentials. Please try again.");
+        return;
+      }
+
+      if (!isAdminRole(data?.user?.user_type)) {
+        setError("Access denied. Only Admin or Super Admin accounts can log in here.");
         return;
       }
 

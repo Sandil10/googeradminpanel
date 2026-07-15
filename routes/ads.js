@@ -4,8 +4,24 @@ const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const adminOnly = require('../middleware/adminOnly');
 const adCoinController = require('../controllers/adCoinController');
+const { resolveGoogerMainWalletUserId } = require('../../shared/utils/financeBoundary');
 
 const VALID_AD_STATUSES = new Set(['Under Review', 'Active', 'Paused', 'Cancelled', 'Completed']);
+
+async function ensureAdImpressionsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ad_impressions (
+      id SERIAL PRIMARY KEY,
+      ad_id VARCHAR(80) NOT NULL REFERENCES ads(ad_id) ON DELETE CASCADE,
+      user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+      viewer_key TEXT,
+      ip_address TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_ad_impressions_ad_id ON ad_impressions(ad_id);
+    CREATE INDEX IF NOT EXISTS idx_ad_impressions_created_at ON ad_impressions(created_at);
+  `);
+}
 
 const normalizeAdStatus = (status) => {
   const normalized = String(status || '').trim().toLowerCase().replace(/[_-]+/g, ' ');
@@ -17,6 +33,32 @@ const normalizeAdStatus = (status) => {
   if (normalized === 'under review' || normalized === 'pending' || normalized === 'pending approval' || normalized === 'review') return 'Under Review';
 
   return null;
+};
+
+const resolveRemainingRefundAmount = (ad) => {
+  const remaining = Number(ad?.remaining_budget ?? ad?.remainingBudget);
+  if (Number.isFinite(remaining) && remaining > 0) {
+    return Math.round(remaining * 100) / 100;
+  }
+
+  const budget = Number(ad?.budget || 0);
+  const spend = Number(ad?.spend || 0);
+  const fallback = Math.max(0, budget - Math.max(0, spend));
+  return Math.round(fallback * 100) / 100;
+};
+
+const debitGoogerMainForAdRefund = async (client, refundAmount) => {
+  if (refundAmount <= 0) return null;
+  const googerUserId = await resolveGoogerMainWalletUserId(client);
+  if (!googerUserId) return null;
+  await client.query(`SET LOCAL googer.allow_admin_wallet_capital = 'true'`);
+  await client.query(
+    `UPDATE users
+     SET wallet_balance = GREATEST(0, COALESCE(wallet_balance, 0) - $1)
+     WHERE id = $2`,
+    [refundAmount, googerUserId]
+  );
+  return googerUserId;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -60,7 +102,12 @@ const normalizeAdRows = (rows) => rows.map((row) => {
   const status = normalizeAdStatus(row.status) || 'Under Review';
   const durationState = calculateAdDurationState({ ...row, status });
   const countedViews = Number(row.counted_views ?? row.views_count ?? row.viewCount ?? row.views ?? 0);
-  const impressions = Number(row.impressions_count ?? row.impressions ?? 0);
+  const rawImpressions = Number(row.impressions_count ?? row.impressions ?? 0);
+  const isProfilePromote = String(row.campaign_type || row.campaignType || '').trim().toLowerCase() === 'profile promote';
+  const profileImpressions = Number(row.profile_impressions || 0);
+  const impressions = isProfilePromote
+    ? (profileImpressions > 0 ? Math.max(profileImpressions, countedViews) : (countedViews > 0 && rawImpressions > countedViews ? countedViews : rawImpressions))
+    : rawImpressions;
   const clicks = Number(row.clicks ?? row.click_events ?? 0);
   const activeStartTime = toUtcIso(row.active_start_time || row.started_at);
   const startedAt = toUtcIso(row.started_at || row.active_start_time);
@@ -128,6 +175,8 @@ const ensureAdsAdminColumns = async () => {
       ADD COLUMN IF NOT EXISTS active_start_time TIMESTAMP,
       ADD COLUMN IF NOT EXISTS started_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS last_resumed_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS estimated_reach_min INTEGER DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS estimated_reach_max INTEGER DEFAULT NULL,
       ADD COLUMN IF NOT EXISTS max_reach_cap INTEGER DEFAULT NULL,
       ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP DEFAULT NULL
   `);
@@ -165,7 +214,7 @@ const completeAdsAtReachCap = async () => {
 const refundRejectedAd = async (client, ad, rejectionReason) => {
   const userId = Number(ad.user_id || 0);
   const transferId = Number(ad.wallet_transfer_id || 0);
-  const refundAmount = Number(ad.remaining_budget || ad.budget || 0);
+  const refundAmount = resolveRemainingRefundAmount(ad);
 
   if (!userId || !transferId || refundAmount <= 0) {
     return;
@@ -185,7 +234,7 @@ const refundRejectedAd = async (client, ad, rejectionReason) => {
   }
 
   const transferStatus = String(transfer.status || '').toLowerCase();
-  if (transferStatus === 'cancelled' || transferStatus === 'rejected') {
+  if (transferStatus === 'cancelled' || transferStatus === 'rejected' || transferStatus === 'refunded') {
     return;
   }
 
@@ -197,37 +246,66 @@ const refundRejectedAd = async (client, ad, rejectionReason) => {
     [refundAmount, userId]
   );
 
-  await client.query(
-    `UPDATE wallet_transfers
-     SET status = 'cancelled',
-         note = $2,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1`,
-    [
-      transferId,
-      `Ad rejected refund: ${rejectionReason || 'Admin rejection'}`
-    ]
-  );
+  const isAcceptedPoolTransfer = transferStatus === 'accepted';
+  const googerUserId = isAcceptedPoolTransfer
+    ? await debitGoogerMainForAdRefund(client, refundAmount)
+    : null;
+
+  if (isAcceptedPoolTransfer) {
+    await client.query(
+      `INSERT INTO wallet_transfers (sender_id, receiver_id, amount, note, type, status, commission, commission_percentage)
+       VALUES ($1, $2, $3, $4, 'ad_refund', 'accepted', $5, 0)`,
+      [
+        googerUserId || Number(transfer.receiver_id || 0) || userId,
+        userId,
+        refundAmount,
+        `Ad Remaining Budget Refund - ${ad.ad_id} (${ad.campaign_type || 'Ad'}) - Cancelled`,
+        -refundAmount,
+      ]
+    );
+  } else {
+    await client.query(
+      `UPDATE wallet_transfers
+       SET status = 'cancelled',
+           note = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [
+        transferId,
+        `Ad rejected refund: ${rejectionReason || 'Admin rejection'}`
+      ]
+    );
+
+    await client.query(
+      `INSERT INTO wallet_transfers (sender_id, receiver_id, amount, note, type, status, commission, commission_percentage)
+       VALUES ($1, $2, $3, $4, 'ad_refund', 'accepted', 0, 0)`,
+      [
+        userId,
+        userId,
+        refundAmount,
+        `Refund for rejected ad ${ad.ad_id}: ${rejectionReason || 'Admin rejection'}`
+      ]
+    );
+  }
 
   await client.query(
-    `INSERT INTO wallet_transfers (sender_id, receiver_id, amount, note, type, status, commission, commission_percentage)
-     VALUES ($1, $2, $3, $4, 'ad_refund', 'accepted', 0, 0)`,
-    [
-      userId,
-      userId,
-      refundAmount,
-      `Refund for rejected ad ${ad.ad_id}: ${rejectionReason || 'Admin rejection'}`
-    ]
+    `UPDATE ads
+     SET remaining_budget = 0,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE ad_id::text = $1::text`,
+    [ad.ad_id]
   );
 };
 
 router.get('/all', authMiddleware, adminOnly, async (req, res) => {
   try {
+    await ensureAdImpressionsTable();
     await completeAdsAtReachCap();
     const { status } = req.query;
     let query = `
       SELECT
         a.*,
+        (SELECT COUNT(*)::int FROM ad_impressions ai WHERE ai.ad_id = a.ad_id) AS profile_impressions,
         COALESCE(av.counted_views, 0) AS counted_views,
         COALESCE(av.unique_reach, 0) AS unique_reach,
         COALESCE(av.counted_views, 0) AS reach_count,
@@ -292,12 +370,14 @@ router.get('/all', authMiddleware, adminOnly, async (req, res) => {
 
 router.get('/:adId', authMiddleware, adminOnly, async (req, res) => {
   try {
+    await ensureAdImpressionsTable();
     await completeAdsAtReachCap();
     const { adId } = req.params;
     const result = await pool.query(
       `
         SELECT
           a.*,
+          (SELECT COUNT(*)::int FROM ad_impressions ai WHERE ai.ad_id = a.ad_id) AS profile_impressions,
           COALESCE(av.counted_views, 0) AS counted_views,
           COALESCE(av.unique_reach, 0) AS unique_reach,
           COALESCE(av.counted_views, 0) AS reach_count,

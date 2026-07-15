@@ -5,10 +5,15 @@ const os = require('os');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { ListObjectsV2Command, S3Client } = require('@aws-sdk/client-s3');
 const authMiddleware = require('../middleware/auth');
 const adminOnly = require('../middleware/adminOnly');
 const { writeAdminAuditEvent } = require('../utils/adminAuditLogger');
-const { getLockedGoogerPooledState, normalizeMoney } = require('../../shared/utils/financeBoundary');
+const {
+    getLockedGoogerPooledState,
+    normalizeMoney,
+    resolveGoogerMainWalletUserId,
+} = require('../../shared/utils/financeBoundary');
 const { creditAdminWalletFromGoogerPool } = require('../../shared/utils/financeCommands');
 const { claimFinanceIdempotencyKey, completeFinanceIdempotencyKey } = require('../../shared/utils/financeIdempotency');
 
@@ -104,6 +109,56 @@ async function getDirectorySize(targetPath, depth = 0) {
     }
 }
 
+let objectStorageSnapshotCache = { expiresAt: 0, value: null };
+
+async function getObjectStorageSnapshot() {
+    const bucket = String(process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || process.env.STORAGE_BUCKET || '').trim();
+    if (!bucket) {
+        return { configured: false, available: false, bucket: null, sizeBytes: null, objectCount: null };
+    }
+
+    if (objectStorageSnapshotCache.value && objectStorageSnapshotCache.expiresAt > Date.now()) {
+        return objectStorageSnapshotCache.value;
+    }
+
+    const region = String(process.env.AWS_S3_REGION || process.env.AWS_REGION || 'us-east-1').trim();
+    const client = new S3Client({ region });
+    let continuationToken;
+    let sizeBytes = 0;
+    let objectCount = 0;
+
+    try {
+        do {
+            const page = await client.send(new ListObjectsV2Command({
+                Bucket: bucket,
+                ContinuationToken: continuationToken,
+            }));
+            for (const object of page.Contents || []) {
+                sizeBytes += trafficNumber(object.Size);
+                objectCount += 1;
+            }
+            continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+        } while (continuationToken);
+
+        const value = { configured: true, available: true, bucket, region, sizeBytes, objectCount };
+        objectStorageSnapshotCache = { value, expiresAt: Date.now() + 5 * 60 * 1000 };
+        return value;
+    } catch (error) {
+        console.warn('[traffic-analysis] S3 usage lookup failed:', error?.name || error?.message || error);
+        return {
+            configured: true,
+            available: false,
+            bucket,
+            region,
+            sizeBytes: null,
+            objectCount: null,
+            error: error?.name || 'S3 usage unavailable',
+        };
+    } finally {
+        client.destroy();
+    }
+}
+
 async function getNetworkTrafficSnapshot() {
     if (process.platform !== 'linux') return { rxBytes: null, txBytes: null };
     try {
@@ -135,17 +190,71 @@ async function tableExists(tableName) {
 
 router.get('/stats', async (req, res) => {
     try {
-        const statsResult = await pool.query(`
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
+        const client = await pool.connect();
+        let statsResult;
+        try {
+            const googerMainUserId = await resolveGoogerMainWalletUserId(client);
+            const [hasUploadPurchases, hasUploadSubscriptions] = await Promise.all([
+                tableExists('upload_content_purchases'),
+                tableExists('upload_content_subscriptions'),
+            ]);
+            const uploadPurchaseCommissionSql = hasUploadPurchases
+                ? '(SELECT SUM(commission_amount) FROM upload_content_purchases)'
+                : '0';
+            const uploadSubscriptionCommissionSql = hasUploadSubscriptions
+                ? '(SELECT SUM(commission_amount) FROM upload_content_subscriptions)'
+                : '0';
+            statsResult = await client.query(`
+            WITH commission_totals AS (
+                SELECT
+                    COALESCE((
+                        SELECT SUM(commission)
+                        FROM wallet_transfers
+                        WHERE LOWER(TRIM(COALESCE(status, ''))) = 'accepted'
+                    ), 0)::numeric AS wallet_commission,
+                    COALESCE((
+                        SELECT SUM(commission)
+                        FROM wallet_transfers
+                        WHERE LOWER(TRIM(COALESCE(status, ''))) = 'accepted'
+                          AND LOWER(TRIM(COALESCE(type, ''))) = 'commission_hold'
+                    ), 0)::numeric AS upload_transfer_commission,
+                    (
+                        COALESCE(${uploadPurchaseCommissionSql}, 0)
+                        + COALESCE(${uploadSubscriptionCommissionSql}, 0)
+                    )::numeric AS upload_record_commission
+            ),
+            commission_pool AS (
+                SELECT
+                    (
+                        wallet_commission
+                        + GREATEST(0, upload_record_commission - upload_transfer_commission)
+                    )::numeric AS googer_commission_pool
+                FROM commission_totals
+            )
             SELECT
                 (SELECT COUNT(*)::bigint FROM users) AS total_users,
                 (SELECT COUNT(*)::bigint FROM users WHERE LOWER(user_type) = 'seller') AS active_sellers,
                 (SELECT COUNT(*)::bigint FROM market WHERE status IN ('pending', 'reviewing')) AS pending_products,
-                (SELECT COALESCE(SUM(wallet_balance), 0) FROM users) AS total_users_balance,
-                (SELECT COALESCE(SUM(commission), 0) FROM wallet_transfers WHERE status = 'accepted') AS googer_balance,
+                (
+                    SELECT COALESCE(SUM(wallet_balance), 0)
+                    FROM users
+                    WHERE id <> $1
+                      AND LOWER(COALESCE(username, '')) <> 'superadmin'
+                      AND marked_for_deletion_at IS NULL
+                      AND COALESCE(is_deactivated, false) = false
+                      AND LOWER(COALESCE(status, 'active')) <> 'deactivated'
+                ) AS total_users_balance,
+                (SELECT googer_commission_pool FROM commission_pool) AS googer_balance,
                 (SELECT COALESCE(SUM(commission), 0) FROM ad_coin_collections) AS coin_collect_balance,
                 (SELECT COALESCE(SUM(commission), 0) FROM wallet_transfers WHERE status = 'accepted' AND type = 'profile_promote') AS ad_publish_balance,
                 (SELECT COALESCE(SUM(commission), 0) FROM wallet_transfers WHERE type = 'system_topup' AND status = 'accepted') AS capital_transfer_balance
-        `);
+        `, [googerMainUserId || 0]);
+        } finally {
+            client.release();
+        }
         const stats = statsResult.rows[0] || {};
 
         return res.json({
@@ -608,7 +717,11 @@ router.post('/add-wallet-capital', async (req, res) => {
             `UPDATE users
              SET wallet_balance = wallet_balance + $1
              WHERE id = $2
-               AND (LOWER(user_type) = 'admin' OR LOWER(user_type) = 'super_admin')
+               AND (
+                   LOWER(REPLACE(REPLACE(TRIM(COALESCE(user_type, '')), ' ', '_'), '-', '_'))
+                       IN ('admin', 'super_admin', 'superadmin', 'administrator')
+                   OR LOWER(COALESCE(username, '')) = 'superadmin'
+               )
              RETURNING id, wallet_balance`,
             [addAmount, adminId]
         );
@@ -798,10 +911,72 @@ router.get('/all-transactions', async (req, res) => {
     }
 });
 
+// Lightweight live pulse — presence counts only, safe to poll every 1-3 seconds.
+// The full /traffic-analysis payload stays on a slow cadence (disk/S3/network probes are expensive).
+router.get('/traffic-analysis/pulse', async (req, res) => {
+    try {
+        const hasPresence = await tableExists('chat_presence');
+        if (!hasPresence) {
+            return res.json({ success: true, generatedAt: new Date().toISOString(), available: false });
+        }
+        const [summary, recentUsers] = await Promise.all([
+            pool.query(`
+                SELECT
+                    COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '20 seconds')::int AS active_concurrent_users,
+                    COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '60 seconds')::int AS online_users,
+                    COUNT(*) FILTER (WHERE last_seen_at < NOW() - INTERVAL '60 seconds' AND last_seen_at >= NOW() - INTERVAL '5 minutes')::int AS idle_users,
+                    COUNT(*) FILTER (WHERE last_seen_at >= date_trunc('day', NOW()))::int AS daily_active_users,
+                    COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '30 days')::int AS monthly_active_users,
+                    MAX(last_seen_at) AS latest_seen_at
+                FROM chat_presence
+            `),
+            pool.query(`
+                SELECT
+                    cp.user_id,
+                    u.username,
+                    u.full_name,
+                    u.user_type,
+                    cp.last_seen_at,
+                    GREATEST(0, EXTRACT(EPOCH FROM (NOW() - cp.last_seen_at))::int) AS seconds_ago
+                FROM chat_presence cp
+                LEFT JOIN users u ON u.id = cp.user_id
+                ORDER BY cp.last_seen_at DESC
+                LIMIT 12
+            `),
+        ]);
+        const row = summary.rows[0] || {};
+        const activeConcurrentUsers = trafficNumber(row.active_concurrent_users);
+        res.json({
+            success: true,
+            generatedAt: new Date().toISOString(),
+            available: true,
+            activeConcurrentUsers,
+            onlineUsers: trafficNumber(row.online_users),
+            idleUsers: trafficNumber(row.idle_users),
+            dailyActiveUsers: trafficNumber(row.daily_active_users),
+            monthlyActiveUsers: trafficNumber(row.monthly_active_users),
+            latestSeenAt: row.latest_seen_at,
+            requestsPerSecond: trafficRound(activeConcurrentUsers > 0 ? activeConcurrentUsers / 20 : 0, 2),
+            recentUsers: recentUsers.rows.map((user) => ({
+                userId: user.user_id,
+                username: user.username,
+                fullName: user.full_name,
+                userType: user.user_type,
+                lastSeenAt: user.last_seen_at,
+                secondsAgo: trafficNumber(user.seconds_ago, 999),
+                status: trafficNumber(user.seconds_ago, 999) <= 20 ? 'active' : trafficNumber(user.seconds_ago, 999) <= 60 ? 'online' : 'idle',
+            })),
+        });
+    } catch (err) {
+        console.error('/admin/traffic-analysis/pulse error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 router.get('/traffic-analysis', async (req, res) => {
     try {
         const hasPresence = await tableExists('chat_presence');
-        const [summary, recentUsers, databaseStats, databaseSessions, diskSnapshot, networkSnapshot, localUploadBytes] = await Promise.all([
+        const [summary, recentUsers, databaseStats, databaseSessions, diskSnapshot, networkSnapshot, localUploadBytes, objectStorage] = await Promise.all([
             hasPresence ? pool.query(`
                 SELECT
                     COUNT(*) FILTER (WHERE last_seen_at >= NOW() - INTERVAL '20 seconds')::int AS active_concurrent_users,
@@ -846,6 +1021,7 @@ router.get('/traffic-analysis', async (req, res) => {
             Promise.resolve(getDiskSnapshot(process.cwd())),
             getNetworkTrafficSnapshot(),
             getDirectorySize(path.resolve(process.cwd(), '../googernew-main/backend/public/uploads')),
+            getObjectStorageSnapshot(),
         ]);
 
         const row = summary.rows[0] || {};
@@ -885,7 +1061,7 @@ router.get('/traffic-analysis', async (req, res) => {
             return {
                 months,
                 estimatedConcurrentUsers,
-                estimatedStorageBytes: Math.round(trafficNumber(localUploadBytes) * Math.pow(1.08, months)),
+                estimatedStorageBytes: Math.round(trafficNumber(objectStorage.sizeBytes ?? localUploadBytes) * Math.pow(1.08, months)),
                 estimatedBandwidthBytes: networkSnapshot.rxBytes !== null && networkSnapshot.txBytes !== null
                     ? Math.round((trafficNumber(networkSnapshot.rxBytes) + trafficNumber(networkSnapshot.txBytes)) * Math.pow(1.05, months))
                     : null,
@@ -956,6 +1132,13 @@ router.get('/traffic-analysis', async (req, res) => {
                 },
                 storage: {
                     localUploadBytes,
+                    objectStorageBytes: objectStorage.sizeBytes,
+                    objectCount: objectStorage.objectCount,
+                    bucket: objectStorage.bucket,
+                    region: objectStorage.region,
+                    source: objectStorage.available ? 's3' : 'local',
+                    available: objectStorage.available,
+                    error: objectStorage.error || null,
                 },
             },
             liveTraffic: {

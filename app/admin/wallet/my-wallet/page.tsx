@@ -289,13 +289,13 @@ export default function MyWallet() {
             <div className="bg-[#162033] border border-gray-800 rounded-2xl p-6 md:p-8 mb-8 shadow-lg relative overflow-hidden transition-all hover:border-gray-700 flex flex-col items-center justify-center text-center">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/5 rounded-full blur-3xl"></div>
                 <div className="relative z-10 flex flex-col items-center w-full">
-                    <h2 className="text-lg md:text-xl font-bold text-white mb-4 tracking-wide">My total Ruppier Coins balance</h2>
+                    <h2 className="mb-4 text-lg font-bold tracking-wide text-white md:text-xl">My total Rupieer Coins balance</h2>
 
                     <div className="flex flex-row items-baseline gap-3 justify-center mb-2">
                         <div className="relative w-12 h-6 md:w-16 md:h-10 shrink-0">
                             <Image
                                 src="/assets/images/rupee.png"
-                                alt="Rupee"
+                                alt="Rupieer"
                                 width={100}
                                 height={50}
                                 className="object-contain"
