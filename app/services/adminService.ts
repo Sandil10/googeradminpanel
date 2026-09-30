@@ -268,7 +268,9 @@ export const adminService = {
         if (queryString) url += `?${queryString}`;
 
         const response = await fetch(url, {
-            headers: getHeaders()
+            headers: getHeaders(),
+            // Live table — never serve a cached list.
+            cache: 'no-store',
         });
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch posts');
@@ -867,6 +869,16 @@ export const adminService = {
         const result = await safeJson(response);
         if (!response.ok) throw new Error(result?.message || 'Failed to fetch upload contents');
         return result?.contents || [];
+    },
+
+    fetchAdminUploadContentMedia: async (contentId: string) => {
+        const response = await fetch(`${API_URL}/admin/customization/upload-contents/${encodeURIComponent(contentId)}/media`, {
+            headers: getHeaders(),
+            cache: 'no-store',
+        });
+        const result = await safeJson(response);
+        if (!response.ok) throw new Error(result?.message || 'Failed to fetch upload content media');
+        return result?.media || result;
     },
 
     updateUploadContentStatus: async (contentId: string, payload: { status: 'Approved' | 'Rejected'; rejectionReason?: string; adminNote?: string }) => {

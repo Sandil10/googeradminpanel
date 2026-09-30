@@ -58,6 +58,53 @@ async function syncSharedAdExpiry(value = 30, unit = 'days') {
     );
 }
 
+function validateGracePeriodExtra(extra) {
+    if (!extra || typeof extra !== 'object') return;
+    const hasValue = extra.grace_period_value !== undefined || extra.subscription_grace_value !== undefined;
+    const hasUnit = extra.grace_period_unit !== undefined || extra.subscription_grace_unit !== undefined;
+    if (!hasValue && !hasUnit) return;
+
+    const value = Number(extra.grace_period_value ?? extra.subscription_grace_value);
+    const unit = String(extra.grace_period_unit ?? extra.subscription_grace_unit ?? '').toLowerCase();
+    if (!Number.isInteger(value) || value < 1 || !['minutes', 'hours', 'days'].includes(unit)) {
+        const error = new Error('Grace period must be a positive whole number in minutes, hours, or days');
+        error.statusCode = 400;
+        throw error;
+    }
+}
+
+async function syncApprovedUploadExpiryForPlan(plan) {
+    const unit = String(plan?.extra?.content_expiry_unit || 'unlimited').toLowerCase();
+    const allowedUnits = new Set(['minutes', 'hours', 'days', 'months', 'unlimited']);
+    const expiryUnit = allowedUnits.has(unit) ? unit : 'unlimited';
+    const rawValue = Number(plan?.extra?.content_expiry_value ?? 1);
+    const expiryValue = Number.isFinite(rawValue) ? Math.max(1, Math.floor(rawValue)) : 1;
+
+    await pool.query(
+        `UPDATE upload_contents
+         SET approval_expiry_value = CASE WHEN $2 = 'unlimited' THEN NULL ELSE $3::int END,
+             approval_expiry_unit = $2,
+             expires_at = CASE $2
+                 WHEN 'minutes' THEN (CASE WHEN LOWER($4) = 'basic' AND basic_fallback_owner_only THEN CURRENT_TIMESTAMP ELSE approved_at END) + ($3::int * INTERVAL '1 minute')
+                 WHEN 'hours' THEN (CASE WHEN LOWER($4) = 'basic' AND basic_fallback_owner_only THEN CURRENT_TIMESTAMP ELSE approved_at END) + ($3::int * INTERVAL '1 hour')
+                 WHEN 'days' THEN (CASE WHEN LOWER($4) = 'basic' AND basic_fallback_owner_only THEN CURRENT_TIMESTAMP ELSE approved_at END) + ($3::int * INTERVAL '1 day')
+                 WHEN 'months' THEN (CASE WHEN LOWER($4) = 'basic' AND basic_fallback_owner_only THEN CURRENT_TIMESTAMP ELSE approved_at END) + ($3::int * INTERVAL '1 month')
+                 ELSE NULL
+             END,
+             updated_at = NOW()
+         WHERE status = 'Approved'
+           AND approved_at IS NOT NULL
+           AND (
+               approval_plan_id = $1
+               OR (
+                   approval_plan_id IS NULL
+                   AND LOWER(COALESCE(approval_plan_slug, '')) = LOWER($4)
+               )
+           )`,
+        [plan.id, expiryUnit, expiryValue, String(plan.slug || '')]
+    );
+}
+
 async function audit(req, event) {
     try {
         await writeAdminAuditEvent(req, event);
@@ -312,6 +359,7 @@ const update = async (req, res) => {
 
         for (const key of allowed) {
             if (req.body[key] !== undefined) {
+                if (key === 'extra') validateGracePeriodExtra(req.body[key]);
                 sets.push(`${key} = $${i}`);
                 values.push(jsonFields.has(key) ? JSON.stringify(req.body[key]) : req.body[key]);
                 i++;
@@ -328,6 +376,13 @@ const update = async (req, res) => {
         );
 
         if (rows.length === 0) return res.status(404).json({ message: 'Plan not found' });
+
+        if (
+            req.body.extra?.content_expiry_value !== undefined ||
+            req.body.extra?.content_expiry_unit !== undefined
+        ) {
+            await syncApprovedUploadExpiryForPlan(rows[0]);
+        }
 
         const expiryValue = req.body.extra?.ads_expiry_value;
         const expiryUnit = req.body.extra?.ads_expiry_unit;
@@ -368,7 +423,7 @@ const update = async (req, res) => {
         res.json({ data: normalizePlanRows(refreshed.rows)[0], message: 'Plan updated' });
     } catch (err) {
         if (err.code === '23505') return res.status(409).json({ message: 'A plan with this slug already exists' });
-        res.status(500).json({ message: err.message });
+        res.status(err.statusCode || 500).json({ message: err.message });
     }
 };
 
@@ -466,11 +521,14 @@ const getPurchases = async (req, res) => {
                 NULL::numeric AS plan_price
             FROM users u
             WHERE u.is_verified = TRUE
+              -- Only an *active* paid plan replaces the Badge Only row. A user
+              -- whose old plan was cancelled used to vanish from the default
+              -- (active) view after the admin saved a badge for them.
               AND NOT EXISTS (
                 SELECT 1 FROM user_plan_subscriptions ups2
                 WHERE ups2.user_id = u.id
                   AND ups2.plan_slug != 'basic'
-                  AND ups2.status IN ('active', 'cancelled')
+                  AND ups2.status = 'active'
               )
 
             ORDER BY started_at DESC NULLS LAST
@@ -647,7 +705,7 @@ const assignVerificationBadge = async (req, res) => {
             target: { userId: req.params?.userId || null },
             error: err.message,
         });
-        res.status(500).json({ message: err.message });
+        res.status(err.statusCode || 500).json({ message: err.message });
     }
 };
 

@@ -15,6 +15,7 @@ router.get('/public-overview', customizationController.getPublicCustomizationOve
 router.get('/reach-settings/public', reachSettingsController.getPublic);
 router.get('/reach-tiers/public', reachTiersController.getPublic);
 router.get('/ad-allowed-countries', require('../controllers/adAllowedCountriesController').getPublic);
+router.get('/country-catalog', require('../controllers/adAllowedCountriesController').getCountryCatalog);
 router.get('/upload-control/public', uploadControlController.getPublic);
 
 router.use(authMiddleware, adminOnly);
@@ -68,6 +69,7 @@ router.delete('/promo-codes/:id', promoCodeController.remove);
 router.get('/upload-control', uploadControlController.getAdmin);
 router.put('/upload-control', uploadControlController.update);
 router.get('/upload-contents', uploadControlController.getUploadContentsAdmin);
+router.get('/upload-contents/:contentId/media', uploadControlController.getUploadContentMediaAdmin);
 router.patch('/upload-contents/:contentId/status', uploadControlController.updateUploadContentStatusAdmin);
 router.delete('/upload-contents/:contentId', uploadControlController.deleteUploadContentAdmin);
 

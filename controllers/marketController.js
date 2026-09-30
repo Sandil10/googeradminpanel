@@ -309,7 +309,20 @@ exports.updateMarketItemStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
-        await pool.query('UPDATE market SET status = $1 WHERE id = $2', [status, id]);
+        await pool.query('ALTER TABLE market ADD COLUMN IF NOT EXISTS active_start_time TIMESTAMP');
+        // Approval restarts the listing's "posted" clock (feed time label).
+        await pool.query(
+            `UPDATE market
+                SET active_start_time = CASE
+                      WHEN $1 IN ('approved', 'active')
+                       AND COALESCE(status, '') NOT IN ('approved', 'active', 'inactive')
+                      THEN NOW()
+                      ELSE active_start_time
+                    END,
+                    status = $1
+              WHERE id = $2`,
+            [status, id]
+        );
         res.status(200).json({ success: true, message: 'Status updated successfully' });
     } catch (error) {
         console.error('Error updating status:', error);

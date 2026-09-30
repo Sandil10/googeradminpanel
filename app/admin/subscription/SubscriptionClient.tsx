@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import IonIcon from "@/components/IonIcon";
 import { adminService } from "@/services/adminService";
 import { resolveColor, type Plan } from "./planUtils";
+import { ChatFeaturesModal, StickersEmojisModal } from "./ChatFeaturesModals";
 
 export default function SubscriptionClient() {
     const router = useRouter();
@@ -18,6 +19,17 @@ export default function SubscriptionClient() {
     const [expiryValue, setExpiryValue] = useState('30');
     const [expiryUnit, setExpiryUnit] = useState<'minutes' | 'hours' | 'days'>('days');
     const [savingExpiry, setSavingExpiry] = useState(false);
+    const [graceModalOpen, setGraceModalOpen] = useState(false);
+    const [graceValue, setGraceValue] = useState('7');
+    const [graceUnit, setGraceUnit] = useState<'minutes' | 'hours' | 'days'>('days');
+    const [savingGrace, setSavingGrace] = useState(false);
+    const [durationModalOpen, setDurationModalOpen] = useState(false);
+    const [durationValue, setDurationValue] = useState('30');
+    const [durationUnit, setDurationUnit] = useState<'minutes' | 'hours' | 'days'>('days');
+    const [savingDuration, setSavingDuration] = useState(false);
+    const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+    const [chatFeaturesOpen, setChatFeaturesOpen] = useState(false);
+    const [stickersOpen, setStickersOpen] = useState(false);
     const showToast = (type: 'success' | 'error', msg: string) => {
         setToast({ type, msg });
         setTimeout(() => setToast(null), 3500);
@@ -73,6 +85,14 @@ export default function SubscriptionClient() {
             unit: (extra.ads_expiry_unit || 'days') as 'minutes' | 'hours' | 'days',
         };
     };
+    const getPostingDailyLabel = (plan: Plan) => {
+        const limit = Number(plan.extra?.goog_posting_daily_limit ?? plan.extra?.write_goog_daily_limit ?? 0);
+        return limit > 0 ? `${limit}/day` : 'Unlimited/day';
+    };
+    const getPostingTotalLabel = (plan: Plan) => {
+        const limit = Number(plan.extra?.goog_posting_total_limit ?? plan.googs_limit ?? plan.extra?.goog_posting_limit ?? plan.extra?.write_goog_limit ?? 0);
+        return limit > 0 ? `${limit} total` : 'Unlimited total';
+    };
     const getContentExpiryLabel = (plan?: Plan) => {
         const extra = plan?.extra || {};
         const unit = String(extra.content_expiry_unit || 'unlimited');
@@ -109,6 +129,107 @@ export default function SubscriptionClient() {
         setExpiryValue(expiry.value);
         setExpiryUnit(expiry.unit);
         setExpiryModalOpen(true);
+    };
+
+    const getGracePeriod = (plan: Plan) => {
+        const extra = plan.extra || {};
+        const value = Number(extra.grace_period_value ?? extra.subscription_grace_value ?? 7);
+        const unit = String(extra.grace_period_unit ?? extra.subscription_grace_unit ?? 'days').toLowerCase();
+        return {
+            value: String(Number.isFinite(value) && value > 0 ? Math.floor(value) : 7),
+            unit: (['minutes', 'hours', 'days'].includes(unit) ? unit : 'days') as 'minutes' | 'hours' | 'days',
+        };
+    };
+
+    const openGraceModal = () => {
+        const grace = getGracePeriod(plans.find(plan => !plan.is_default) || plans[0]);
+        setGraceValue(grace.value);
+        setGraceUnit(grace.unit);
+        setGraceModalOpen(true);
+    };
+
+    const handleSaveGrace = async () => {
+        const paidPlans = plans.filter(plan => !plan.is_default);
+        const value = Number(graceValue);
+        if (!Number.isInteger(value) || value < 1 || !['minutes', 'hours', 'days'].includes(graceUnit)) {
+            showToast('error', 'Enter a valid shared grace period');
+            return;
+        }
+
+        setSavingGrace(true);
+        try {
+            await Promise.all(paidPlans.map(plan => adminService.updateSubscriptionPlan(plan.id, {
+                extra: {
+                    ...(plan.extra || {}),
+                    grace_period_value: value,
+                    grace_period_unit: graceUnit,
+                },
+            })));
+            showToast('success', 'Shared grace period updated for all paid packages');
+            setGraceModalOpen(false);
+            load();
+        } catch (err: any) {
+            showToast('error', err.message || 'Failed to update grace periods');
+        } finally {
+            setSavingGrace(false);
+        }
+    };
+
+    // How long a paid subscription lasts. The plans table stores whole days in
+    // duration_days, which cannot express anything shorter, so a sub-day period
+    // lives in extra as duration_value + duration_unit and the backend reads
+    // that first. Shown in days here whenever the stored period is a whole
+    // number of them, so the common case still reads as "30 days".
+    const getPlanDuration = (plan?: Plan) => {
+        const extra = plan?.extra || {};
+        const value = Number(extra.duration_value);
+        const unit = String(extra.duration_unit ?? '').toLowerCase();
+        if (Number.isFinite(value) && value > 0 && ['minutes', 'hours', 'days'].includes(unit)) {
+            return { value: String(Math.floor(value)), unit: unit as 'minutes' | 'hours' | 'days' };
+        }
+        const days = Number(plan?.duration_days ?? 30);
+        return {
+            value: String(Number.isFinite(days) && days > 0 ? Math.floor(days) : 30),
+            unit: 'days' as const,
+        };
+    };
+
+    const openDurationModal = () => {
+        const duration = getPlanDuration(plans.find(plan => !plan.is_default) || plans[0]);
+        setDurationValue(duration.value);
+        setDurationUnit(duration.unit);
+        setDurationModalOpen(true);
+    };
+
+    const handleSaveDuration = async () => {
+        // Basic is excluded: it is the free fall-back plan and does not expire.
+        const paidPlans = plans.filter(plan => !plan.is_default);
+        const value = Number(durationValue);
+        if (!Number.isInteger(value) || value < 1 || !['minutes', 'hours', 'days'].includes(durationUnit)) {
+            showToast('error', 'Enter a valid plan duration');
+            return;
+        }
+
+        setSavingDuration(true);
+        try {
+            await Promise.all(paidPlans.map(plan => adminService.updateSubscriptionPlan(plan.id, {
+                // duration_days is kept in step for whole-day periods so any
+                // other reader of the column still sees the right number.
+                ...(durationUnit === 'days' ? { duration_days: value } : {}),
+                extra: {
+                    ...(plan.extra || {}),
+                    duration_value: value,
+                    duration_unit: durationUnit,
+                },
+            })));
+            showToast('success', 'Plan duration updated for all paid packages');
+            setDurationModalOpen(false);
+            load();
+        } catch (err: any) {
+            showToast('error', err.message || 'Failed to update plan duration');
+        } finally {
+            setSavingDuration(false);
+        }
     };
 
     const handleSaveExpiry = async () => {
@@ -160,16 +281,19 @@ export default function SubscriptionClient() {
                         </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={openExpiryModal}
-                        disabled={loading || plans.length === 0}
-                        className="flex items-center gap-2 bg-white text-black px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-gray-100 transition-colors shadow-lg disabled:opacity-50"
-                    >
-                        <IonIcon name="time-outline" className="text-lg" />
-                        Edit Ad Expiry
-                    </button>
-                </div>
+                {/* One edit icon instead of a row of buttons; it opens the list
+                    of shared settings. */}
+                <button
+                    onClick={() => setSettingsMenuOpen(true)}
+                    disabled={loading}
+                    title="Edit shared settings"
+                    aria-label="Edit shared settings"
+                    className="flex items-center justify-center w-11 h-11 rounded-xl bg-white text-black hover:bg-gray-100 transition-colors shadow-lg disabled:opacity-50"
+                >
+                    {/* Explicit colour: globals.css paints every ion-icon with the
+                        theme's (white) icon colour, which vanished on this white button. */}
+                    <IonIcon name="create-outline" className="text-xl text-black!" />
+                </button>
             </div>
 
             {/* Toast */}
@@ -229,8 +353,12 @@ export default function SubscriptionClient() {
                                         {/* Limit chips */}
                                         <div className="flex flex-wrap gap-2">
                                             <span className="flex items-center gap-1.5 text-xs text-gray-300 bg-[#161616] border border-[#2a2a2a] px-3 py-1.5 rounded-lg">
-                                                <IonIcon name="create-outline" className="text-sm text-gray-500" />
-                                                Write Goog: <strong className="text-white ml-0.5">{freePlan.extra?.write_goog_limit ?? freePlan.googs_limit}</strong>
+                                                <IonIcon name="calendar-outline" className="text-sm text-gray-500" />
+                                                Googer Posting Daily: <strong className="text-white ml-0.5">{getPostingDailyLabel(freePlan)}</strong>
+                                            </span>
+                                            <span className="flex items-center gap-1.5 text-xs text-gray-300 bg-[#161616] border border-[#2a2a2a] px-3 py-1.5 rounded-lg">
+                                                <IonIcon name="albums-outline" className="text-sm text-gray-500" />
+                                                Googer Posting Total: <strong className="text-white ml-0.5">{getPostingTotalLabel(freePlan)}</strong>
                                             </span>
                                             <span className="flex items-center gap-1.5 text-xs text-gray-300 bg-[#161616] border border-[#2a2a2a] px-3 py-1.5 rounded-lg">
                                                 <IonIcon name="text-outline" className="text-sm text-gray-500" />
@@ -359,9 +487,23 @@ export default function SubscriptionClient() {
 
                                             {/* Chips */}
                                             <div className="flex flex-wrap gap-2">
+                                                <span className="flex items-center gap-1 text-xs text-cyan-300 bg-cyan-400/10 px-2.5 py-1 rounded-lg">
+                                                    <IonIcon name="calendar-outline" className="text-sm" />
+                                                    Googer Posting Daily: {getPostingDailyLabel(plan)}
+                                                </span>
+                                                <span className="flex items-center gap-1 text-xs text-cyan-300 bg-cyan-400/10 px-2.5 py-1 rounded-lg">
+                                                    <IonIcon name="albums-outline" className="text-sm" />
+                                                    Googer Posting Total: {getPostingTotalLabel(plan)}
+                                                </span>
                                                 <span className="flex items-center gap-1 text-xs text-gray-500 bg-[#161616] px-2.5 py-1 rounded-lg">
                                                     <IonIcon name="time-outline" className="text-sm" />
                                                     Ads Expiry: {sharedExpiry.value} {sharedExpiry.unit}
+                                                </span>
+                                                {/* The billing period, so the only place it can be read is not
+                                                    hidden inside the edit modal. */}
+                                                <span className="flex items-center gap-1 text-xs text-gray-500 bg-[#161616] px-2.5 py-1 rounded-lg">
+                                                    <IonIcon name="calendar-outline" className="text-sm" />
+                                                    Duration: {getPlanDuration(plan).value} {getPlanDuration(plan).unit}
                                                 </span>
                                                 {plan.verified_tick && (
                                                     <span className="flex items-center gap-1 text-xs text-green-400 bg-green-400/10 px-2.5 py-1 rounded-lg">
@@ -472,6 +614,46 @@ export default function SubscriptionClient() {
                 </div>
             )}
 
+            {settingsMenuOpen && (() => {
+                const options: { icon: string; label: string; hint: string; disabled?: boolean; onClick: () => void }[] = [
+                    { icon: 'time-outline', label: 'Edit Ad Expiry', hint: 'All packages', disabled: plans.length === 0, onClick: openExpiryModal },
+                    { icon: 'calendar-outline', label: 'Edit Plan Duration', hint: 'Paid packages', disabled: paidPlans.length === 0, onClick: openDurationModal },
+                    { icon: 'hourglass-outline', label: 'Edit Grace Period', hint: 'Paid packages', disabled: paidPlans.length === 0, onClick: openGraceModal },
+                    { icon: 'chatbubbles-outline', label: 'Chat Features', hint: 'Voice, photo & video limits', onClick: () => setChatFeaturesOpen(true) },
+                    { icon: 'happy-outline', label: 'Stickers & Emojis', hint: 'Custom, for all packages', onClick: () => setStickersOpen(true) },
+                ];
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setSettingsMenuOpen(false)}>
+                        <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl p-5 w-full max-w-sm shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-white font-bold">Shared Settings</h3>
+                                <button onClick={() => setSettingsMenuOpen(false)} className="text-gray-500 hover:text-white"><IonIcon name="close" className="text-lg" /></button>
+                            </div>
+                            <div className="space-y-2">
+                                {options.map((o) => (
+                                    <button
+                                        key={o.label}
+                                        disabled={o.disabled}
+                                        onClick={() => { setSettingsMenuOpen(false); o.onClick(); }}
+                                        className="w-full flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left hover:bg-white/[0.07] transition-colors disabled:opacity-40"
+                                    >
+                                        <IonIcon name={o.icon} className="text-lg text-white" />
+                                        <span className="flex-1">
+                                            <span className="block text-sm font-bold text-white">{o.label}</span>
+                                            <span className="block text-[11px] text-gray-500">{o.hint}</span>
+                                        </span>
+                                        <IonIcon name="chevron-forward" className="text-sm text-gray-600" />
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {chatFeaturesOpen && <ChatFeaturesModal onClose={() => setChatFeaturesOpen(false)} onToast={showToast} />}
+            {stickersOpen && <StickersEmojisModal onClose={() => setStickersOpen(false)} onToast={showToast} />}
+
             {expiryModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
                     <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl p-6 w-full max-w-sm shadow-2xl">
@@ -525,6 +707,116 @@ export default function SubscriptionClient() {
                             >
                                 {savingExpiry ? 'Saving...' : 'Save'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {durationModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+                    <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+                                <IonIcon name="calendar-outline" className="text-xl text-white" />
+                            </div>
+                            <div>
+                                <h3 className="text-white font-bold">Edit Plan Duration</h3>
+                                <p className="text-gray-500 text-sm">How long a paid subscription lasts. Applies to Package 1, Package 2, and Package 3.</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <label className="block">
+                                <span className="block text-xs text-gray-400 mb-1.5">Duration Value</span>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={durationValue}
+                                    onChange={(event) => setDurationValue(event.target.value)}
+                                    className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-white/30"
+                                />
+                            </label>
+                            <label className="block">
+                                <span className="block text-xs text-gray-400 mb-1.5">Duration Unit</span>
+                                <select
+                                    value={durationUnit}
+                                    onChange={(event) => setDurationUnit(event.target.value as 'minutes' | 'hours' | 'days')}
+                                    className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-white/30"
+                                >
+                                    <option value="minutes">Minutes</option>
+                                    <option value="hours">Hours</option>
+                                    <option value="days">Days</option>
+                                </select>
+                            </label>
+                            <p className="text-[11px] leading-relaxed text-gray-500">
+                                Takes effect the next time somebody subscribes or renews. Subscriptions already
+                                running keep the expiry date they were sold with.
+                            </p>
+                        </div>
+
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={() => setDurationModalOpen(false)}
+                                disabled={savingDuration}
+                                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-gray-300 bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveDuration}
+                                disabled={savingDuration}
+                                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-black bg-white hover:bg-gray-100 transition-colors disabled:opacity-50"
+                            >
+                                {savingDuration ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {graceModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+                    <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+                                <IonIcon name="hourglass-outline" className="text-xl text-white" />
+                            </div>
+                            <div>
+                                <h3 className="text-white font-bold">Edit Grace Period</h3>
+                                <p className="text-gray-500 text-sm">One grace period applies to Plan 1, Package 2, and Package 3.</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 rounded-xl border border-[#242424] bg-[#111] p-4">
+                            <label>
+                                <span className="block text-xs text-gray-400 mb-1.5">Grace Period Value</span>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={graceValue}
+                                    onChange={event => setGraceValue(event.target.value)}
+                                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-white/30"
+                                />
+                            </label>
+                            <label>
+                                <span className="block text-xs text-gray-400 mb-1.5">Unit</span>
+                                <select
+                                    value={graceUnit}
+                                    onChange={event => setGraceUnit(event.target.value as 'minutes' | 'hours' | 'days')}
+                                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-white/30"
+                                >
+                                    <option value="minutes">Minutes</option>
+                                    <option value="hours">Hours</option>
+                                    <option value="days">Days</option>
+                                </select>
+                            </label>
+                            <p className="col-span-2 text-xs text-gray-500">This value is saved to all three paid packages together.</p>
+                        </div>
+
+                        <div className="flex gap-3 mt-6">
+                            <button onClick={() => setGraceModalOpen(false)} disabled={savingGrace} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-gray-300 bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-50">Cancel</button>
+                            <button onClick={handleSaveGrace} disabled={savingGrace} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-black bg-white hover:bg-gray-100 transition-colors disabled:opacity-50">{savingGrace ? 'Saving...' : 'Save'}</button>
                         </div>
                     </div>
                 </div>

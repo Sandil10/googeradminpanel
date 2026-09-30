@@ -26,24 +26,26 @@ export default function AdAllowedCountriesCard() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadingCountries, setLoadingCountries] = useState(false);
 
-  // Fetch all countries with flags from REST Countries API (same as main app)
+  // Load the shared PostgreSQL-backed country catalog. This keeps admin and
+  // mobile aligned and avoids relying on a third-party browser API.
   useEffect(() => {
     setLoadingCountries(true);
-    fetch("https://restcountries.com/v3.1/all?fields=name,flags,cca2,idd")
-      .then(r => r.ok ? r.json() : [])
-      .then((data: any[]) => {
+    fetch("/api/admin/customization/country-catalog")
+      .then(r => r.ok ? r.json() : Promise.reject(new Error("Failed to load country catalog")))
+      .then((payload: any) => {
+        const data = Array.isArray(payload?.countries) ? payload.countries : [];
         const list: Country[] = data
-          .filter(c => c?.cca2 && c?.name?.common)
-          .map(c => ({
-            code: c.cca2,
-            name: c.name.common,
-            flag: c.flags?.svg || c.flags?.png || `https://flagcdn.com/${c.cca2.toLowerCase()}.svg`,
-            flagEmoji: c.flag || String.fromCodePoint(...[...c.cca2.toUpperCase()].map((ch: string) => 0x1F1E6 + ch.charCodeAt(0) - 65)),
+          .filter((c: any) => c?.code && c?.name)
+          .map((c: any) => ({
+            code: String(c.code).toUpperCase(),
+            name: String(c.name),
+            flag: String(c.flag || ""),
+            flagEmoji: String(c.flag || String.fromCodePoint(...[...String(c.code).toUpperCase()].map((ch: string) => 0x1F1E6 + ch.charCodeAt(0) - 65))),
           }))
-          .sort((a, b) => a.name.localeCompare(b.name));
+          .sort((a: Country, b: Country) => a.name.localeCompare(b.name));
         setAllCountries(list);
       })
-      .catch(() => {})
+      .catch((error: Error) => setSaveError(error?.message || "Failed to load country catalog"))
       .finally(() => setLoadingCountries(false));
   }, []);
 
@@ -221,14 +223,7 @@ export default function AdAllowedCountriesCard() {
                   onClick={() => toggle(c.code)}
                   className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.04] ${selected ? "bg-blue-500/5" : ""}`}
                 >
-                  <img
-                    src={`https://flagcdn.com/24x18/${c.code.toLowerCase()}.png`}
-                    alt={c.name}
-                    width={24}
-                    height={18}
-                    className="rounded-sm shrink-0 object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
+                  <span className="w-6 shrink-0 text-base leading-none" aria-hidden="true">{c.flagEmoji}</span>
                   <span className={`flex-1 text-xs font-bold ${selected ? "text-white" : "text-white/60"}`}>{c.name}</span>
                   <span className="text-[9px] text-white/25 font-mono">{c.code}</span>
                   <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-all ${selected ? "border-blue-400 bg-blue-400" : "border-white/20"}`}>

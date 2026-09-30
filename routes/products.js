@@ -77,13 +77,37 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// The listing's "posted" time (feed "5 min ago") counts from approval, not
+// from submission, so approval stamps active_start_time.
+let activeStartColumnReady = null;
+const ensureActiveStartColumn = () => {
+  if (!activeStartColumnReady) {
+    activeStartColumnReady = pool
+      .query('ALTER TABLE market ADD COLUMN IF NOT EXISTS active_start_time TIMESTAMP')
+      .catch((err) => { activeStartColumnReady = null; throw err; });
+  }
+  return activeStartColumnReady;
+};
+
 // Update product status (Approve, Reject, Activate, Deactivate)
 router.patch('/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body; 
+    const { status } = req.body;
+    await ensureActiveStartColumn();
+    // Only a move from review (reviewing/pending/rejected) to live restarts the
+    // clock; active <-> inactive toggles keep the original approval time.
     const result = await pool.query(
-      'UPDATE market SET status = $1 WHERE id = $2 RETURNING *',
+      `UPDATE market
+          SET active_start_time = CASE
+                WHEN $1 IN ('approved', 'active')
+                 AND COALESCE(status, '') NOT IN ('approved', 'active', 'inactive')
+                THEN NOW()
+                ELSE active_start_time
+              END,
+              status = $1
+        WHERE id = $2
+        RETURNING *`,
       [status, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ message: 'Product not found' });

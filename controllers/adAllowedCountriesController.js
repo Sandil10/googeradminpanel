@@ -45,6 +45,27 @@ exports.getAdmin = async (req, res) => {
     }
 };
 
+// Public catalog stored by the main backend in the shared PostgreSQL database.
+// The admin UI uses this instead of the retired REST Countries browser API.
+exports.getCountryCatalog = async (_req, res) => {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS country_catalog (
+                code CHAR(2) PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                flag VARCHAR(16) NOT NULL DEFAULT '',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        const result = await pool.query(
+            'SELECT code, name, flag FROM country_catalog ORDER BY name ASC'
+        );
+        res.json({ success: true, countries: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 // Admin — update
 exports.update = async (req, res) => {
     try {

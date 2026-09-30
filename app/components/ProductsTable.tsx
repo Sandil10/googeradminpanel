@@ -356,6 +356,76 @@ export default function ProductsTable({
         }
     };
 
+    // Real commission values: the seller's form saves them in commission_info
+    // (resell_percentage, resell_amount, googer_commission, discount); older
+    // rows may use commission_data with the same keys.
+    const commissionValue = (product: any, ...keys: string[]) => {
+        const sources = [parseJsonField(product?.commission_info), parseJsonField(product?.commission_data)];
+        for (const src of sources) {
+            if (!src || typeof src !== 'object') continue;
+            for (const key of keys) {
+                const v = src[key];
+                if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+            }
+        }
+        return null;
+    };
+
+    // First JSON field that actually holds data ({} and [] count as empty).
+    const firstFilledJson = (...vals: any[]) => {
+        for (const v of vals) {
+            const parsed = parseJsonField(v);
+            if (parsed === null || parsed === undefined || parsed === '') continue;
+            if (Array.isArray(parsed) && parsed.length === 0) continue;
+            if (typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0) continue;
+            return parsed;
+        }
+        return null;
+    };
+
+    // Seller form saves shipping in shipping_info: { unified, charge, date,
+    // rates: [{ country, charge|price, date|customDate }] }.
+    const productShipping = (product: any) => {
+        const info = firstFilledJson(product?.shipping_info, product?.shipping_data) || {};
+        const rates: any[] = Array.isArray(info?.rates) ? info.rates : [];
+        const countries = rates
+            .map((r: any) => {
+                const country = String(r?.country || '').trim();
+                if (!country) return null;
+                const fee = Number(info?.unified ? info?.charge : (r?.charge ?? r?.price));
+                const date = String(r?.customDate || r?.date || info?.date || '').trim();
+                return { country, fee: Number.isFinite(fee) ? fee : 0, date };
+            })
+            .filter(Boolean) as { country: string; fee: number; date: string }[];
+        if (!countries.length && Array.isArray(info?.countries)) {
+            info.countries.forEach((c: any) => countries.push({ country: String(c).trim(), fee: 0, date: '' }));
+        }
+        return {
+            strategy: info?.strategy || (info?.unified ? 'Unified Fee' : (countries.length ? 'Per Country' : '-')),
+            date: String(info?.date || '').trim(),
+            countries,
+        };
+    };
+
+    const PAYMENT_METHOD_LABELS: Record<string, string> = {
+        wallet: 'Googer Payment',
+        wallet_manual: 'Googer Manual Payment',
+        cod: 'Cash on Delivery',
+        card: 'Credit/Debit Card',
+    };
+
+    const productPaymentMethods = (product: any): string[] => {
+        const raw = parseJsonField(product?.payment_methods);
+        const fromData = parseJsonField(product?.payment_data);
+        const list = Array.isArray(raw) && raw.length ? raw
+            : Array.isArray(fromData) ? fromData
+            : Array.isArray(fromData?.methods) ? fromData.methods : [];
+        return list
+            .map((m: any) => String(typeof m === 'object' ? (m?.id || m?.name || '') : m).trim())
+            .filter(Boolean)
+            .map((m: string) => PAYMENT_METHOD_LABELS[m.toLowerCase()] || m);
+    };
+
     const renderSafe = (val: any, fallback: string = '-') => {
         if (val === null || val === undefined || val === '') return fallback;
         if (typeof val === 'object') {
@@ -879,22 +949,22 @@ export default function ProductsTable({
                                     <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5 space-y-4">
                                         <div>
                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Shipping Strategy</p>
-                                            <p className="text-xs font-bold text-white uppercase">{renderSafe(parseJsonField(selectedProduct.shipping_data)?.strategy, 'Unified Fee')}</p>
+                                            <p className="text-xs font-bold text-white uppercase">{productShipping(selectedProduct).strategy}</p>
                                         </div>
                                         <div>
                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Global Shipping Date</p>
-                                            <p className="text-xs font-bold text-white">{renderSafe(parseJsonField(selectedProduct.shipping_data)?.date, '1-3 days')}</p>
+                                            <p className="text-xs font-bold text-white">{productShipping(selectedProduct).date || '-'}</p>
                                         </div>
                                     </div>
                                     <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5">
                                         <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3">Shipping Countries</p>
                                         <div className="flex flex-wrap gap-2">
                                             {(() => {
-                                                const shipping = parseJsonField(selectedProduct.shipping_data);
-                                                const countries = shipping?.countries || ['Sri Lanka'];
-                                                return countries.map((c: string, i: number) => (
+                                                const countries = productShipping(selectedProduct).countries;
+                                                if (!countries.length) return <span className="text-[9px] font-black uppercase text-slate-500">Not set</span>;
+                                                return countries.map((c, i: number) => (
                                                     <span key={i} className="px-3 py-1 rounded-lg bg-blue-500/10 text-blue-400 text-[9px] font-black uppercase border border-blue-500/20">
-                                                        #{c.trim()}
+                                                        #{c.country} · {c.fee > 0 ? `R ${c.fee.toFixed(2)}` : 'Free'}{c.date ? ` · ${c.date}` : ''}
                                                     </span>
                                                 ));
                                             })()}
@@ -908,7 +978,7 @@ export default function ProductsTable({
                                 <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5">
                                     <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Return Policy</p>
                                     {(() => {
-                                        const policy = parseJsonField(selectedProduct.return_data || selectedProduct.return_policy);
+                                        const policy = firstFilledJson(selectedProduct.return_data, selectedProduct.return_policy);
                                         return (
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold text-white">{policy?.text || policy?.days || (typeof policy === 'string' ? policy : '-')}</p>
@@ -920,7 +990,7 @@ export default function ProductsTable({
                                 <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5">
                                     <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-3">Warranty Info</p>
                                     {(() => {
-                                        const warranty = parseJsonField(selectedProduct.warranty_data || selectedProduct.warranty_info);
+                                        const warranty = firstFilledJson(selectedProduct.warranty_data, selectedProduct.warranty_info);
                                         return (
                                             <div className="space-y-1">
                                                 <p className="text-xs font-bold text-white">{warranty?.warranty || warranty?.custom || (typeof warranty === 'string' ? warranty : 'No Warranty')}</p>
@@ -941,22 +1011,22 @@ export default function ProductsTable({
                                         <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Resell Commission</p>
                                         <div className="flex items-center justify-between">
                                             <span className="text-[10px] font-bold text-white uppercase">Percentage</span>
-                                            <span className="text-[10px] font-black text-blue-400">{renderSafe(parseJsonField(selectedProduct.commission_data)?.resell_percent, '20')}%</span>
+                                            <span className="text-[10px] font-black text-blue-400">{(() => { const v = commissionValue(selectedProduct, 'resell_percentage', 'resell_percent'); return v !== null ? `${v}%` : 'None'; })()}</span>
                                         </div>
                                         <div className="flex items-center justify-between">
                                             <span className="text-[10px] font-bold text-white uppercase">Fixed Amount</span>
-                                            <span className="text-[10px] font-black text-blue-400">R {renderSafe(parseJsonField(selectedProduct.commission_data)?.resell_fixed, '20.00')}</span>
+                                            <span className="text-[10px] font-black text-blue-400">{(() => { const v = commissionValue(selectedProduct, 'resell_amount', 'resell_fixed'); const n = Number(v); return v !== null ? `R ${Number.isFinite(n) ? n.toFixed(2) : v}` : 'None'; })()}</span>
                                         </div>
                                     </div>
                                     <div className="bg-white/[0.03] border border-white/5 rounded-[1.5rem] p-5 space-y-4">
                                         <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Platform Fees</p>
                                         <div className="flex items-center justify-between">
                                             <span className="text-[10px] font-bold text-white uppercase">Googer Comm.</span>
-                                            <span className="text-[10px] font-black text-rose-400">{renderSafe(parseJsonField(selectedProduct.commission_data)?.googer_percent, '5')}%</span>
+                                            <span className="text-[10px] font-black text-rose-400">{(() => { const v = commissionValue(selectedProduct, 'googer_commission', 'googer_percent'); return v !== null ? `${v}%` : '0%'; })()}</span>
                                         </div>
                                         <div className="flex items-center justify-between">
                                             <span className="text-[10px] font-bold text-white uppercase">Discount</span>
-                                            <span className="text-[10px] font-black text-rose-400">{renderSafe(parseJsonField(selectedProduct.commission_data)?.discount_percent, '2')}%</span>
+                                            <span className="text-[10px] font-black text-rose-400">{(() => { const v = commissionValue(selectedProduct, 'discount', 'discount_percent'); return v !== null ? `${v}%` : '0%'; })()}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -965,7 +1035,8 @@ export default function ProductsTable({
                                     <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-3">Accepted Payment Methods</p>
                                     <div className="flex flex-wrap gap-2">
                                         {(() => {
-                                            const methods = parseJsonField(selectedProduct.payment_data)?.methods || ['Rupieer Payments', 'COD', 'Credit/Debit Card'];
+                                            const methods = productPaymentMethods(selectedProduct);
+                                            if (!methods.length) return <span className="text-[9px] font-black uppercase text-slate-500">Not set</span>;
                                             return methods.map((m: string, i: number) => (
                                                 <span key={i} className="px-3 py-1.5 rounded-xl bg-indigo-500/10 text-indigo-300 text-[9px] font-black uppercase border border-indigo-500/20 flex items-center gap-2">
                                                     <IonIcon name="card-outline" />

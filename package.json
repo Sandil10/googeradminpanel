@@ -12,7 +12,7 @@
     "validate:runtime-contracts": "node scripts/validate-runtime-contracts.js .env.runtime",
     "loadtest": "node ../shared/scripts/load-test.js",
     "migrate": "node scripts/run-migrations.js",
-    "client": "next dev -H 0.0.0.0 -p 6001",
+    "client": "next dev --webpack -H 0.0.0.0 -p 6001",
     "client:start": "next start -H 0.0.0.0 -p 6001",
     "preview": "npm run build && npm run client:start",
     "tunnel:frontend": "cloudflared tunnel --url http://localhost:6001",

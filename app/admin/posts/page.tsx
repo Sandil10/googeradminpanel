@@ -118,9 +118,44 @@ export default function PostsPage() {
       }
     };
     load();
-    const iv = setInterval(() => load(true), 30000);
-    return () => { active = false; clearInterval(iv); };
+    // Near real time: new googs, counts and account changes show within a few
+    // seconds, and immediately when the admin returns to the tab.
+    const iv = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      load(true);
+    }, 5000);
+    const onFocus = () => load(true);
+    const onVisible = () => { if (document.visibilityState === "visible") load(true); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      clearInterval(iv);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [searchTerm]);
+
+  // Keep an open likes/comments/shares/views sheet live too.
+  useEffect(() => {
+    if (!interactionPost) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        let result: any[] = [];
+        if (interactionType === "comments") result = await adminService.fetchGoogPostComments(interactionPost.id);
+        else if (interactionType === "likes") result = await adminService.fetchGoogPostLikes(interactionPost.id);
+        else if (interactionType === "shares") result = await adminService.fetchGoogPostShares(interactionPost.id);
+        else result = await adminService.fetchGoogPostViews(interactionPost.id);
+        if (active && Array.isArray(result)) setInteractionData(result);
+      } catch {}
+    };
+    const iv = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      refresh();
+    }, 5000);
+    return () => { active = false; clearInterval(iv); };
+  }, [interactionPost, interactionType]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, activeSort]);
 

@@ -314,7 +314,21 @@ router.get('/all', authMiddleware, adminOnly, async (req, res) => {
         u.username,
         u.full_name,
         u.user_type,
-        u.profile_picture
+        u.profile_picture,
+        -- Product / Profile Promote ads are often saved with no media of their
+        -- own; show the linked product's image or the promoted profile's
+        -- picture so every tab (Under Review, inactive, ...) has a preview.
+        -- Listed after a.* so it replaces the empty stored value.
+        COALESCE(
+          NULLIF(a.media_preview, ''),
+          CASE
+            WHEN a.campaign_type = 'Product Promote'
+              THEN (SELECT m.image_url FROM market m WHERE m.id = a.linked_product_id)
+            WHEN a.campaign_type = 'Profile Promote'
+              THEN u.profile_picture
+          END,
+          a.media_preview
+        ) AS media_preview
       FROM ads a
       LEFT JOIN users u ON a.user_id = u.id
       LEFT JOIN (

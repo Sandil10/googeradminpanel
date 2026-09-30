@@ -295,8 +295,62 @@ export default function PurchasesPage() {
         }
     };
 
+    // One save for the whole popup. The Badge and Plan tabs used to have
+    // separate buttons, so picking a plan and pressing "Save Badge" (or the
+    // reverse) silently dropped the other change. Plan first — assigning a
+    // plan applies the plan's own badge — then the admin's badge choice.
+    const rowBadgeChanged = () => {
+        const p = rowModal.purchase;
+        if (!p) return false;
+        return rowModal.is_verified !== Boolean(p.is_verified)
+            || (rowModal.is_verified && (rowModal.badge_color || '') !== (p.verification_badge_color || DEFAULT_BADGE_COLOR))
+            || (rowModal.is_verified && (rowModal.badge_tick_color || '') !== (p.verification_badge_tick_color || ''));
+    };
+
+    const handleSaveRowAll = async () => {
+        if (!rowModal.purchase) return;
+        const saveBadge = rowModal.tab === 'badge' || rowBadgeChanged();
+        const planId = rowModal.selectedPlanId;
+        if (!saveBadge && !planId) return;
+        setRowModal(m => ({ ...m, saving: true }));
+        const done: string[] = [];
+        try {
+            if (planId) {
+                await adminService.assignSubscriptionPlan(rowModal.purchase.user_id, planId);
+                done.push(`"${plans.find(p => p.id === planId)?.name || "Plan"}" assigned free`);
+            }
+            if (saveBadge) {
+                await adminService.assignVerificationBadge(
+                    rowModal.purchase.user_id,
+                    rowModal.is_verified,
+                    rowModal.is_verified ? rowModal.badge_color : null,
+                    rowModal.is_verified ? rowModal.badge_tick_color : null
+                );
+                done.push(`badge ${rowModal.is_verified ? "assigned" : "removed"}`);
+            }
+            showToast("success", `${done.join(" · ")} for @${rowModal.purchase.username}`);
+            setRowModal(EMPTY_ROW_MODAL);
+            // Show the result: an assigned plan is active, so reset a filter
+            // that could hide it.
+            setFilterStatus("all");
+            load(true);
+        } catch (err: any) {
+            const prefix = done.length ? `${done.join(" · ")}, but ` : "";
+            showToast("error", `${prefix}${err.message || "Save failed"}`);
+            setRowModal(m => ({ ...m, saving: false }));
+            if (done.length) load(true);
+        }
+    };
+
     // ── Status toggle ────────────────────────────────────────────────────────
     const handleToggleStatus = async (p: Purchase) => {
+        // The status pill is a button — one stray click used to cancel the
+        // user's plan straight away. Ask first.
+        const cancelling = p.status === 'active';
+        const ok = window.confirm(cancelling
+            ? `Cancel "${p.plan_name}" for @${p.username}? They will lose the plan's features.`
+            : `Re-activate "${p.plan_name}" for @${p.username}?`);
+        if (!ok) return;
         setTogglingId(p.id);
         try {
             const res = await adminService.togglePurchaseStatus(p.id);
@@ -883,15 +937,15 @@ export default function PurchasesPage() {
                         <div className="px-6 pb-6 pt-4 border-t border-[#1a1a1a] shrink-0 flex gap-3">
                             <button onClick={() => setRowModal(EMPTY_ROW_MODAL)} disabled={rowModal.saving} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-gray-300 bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-50">Cancel</button>
                             {rowModal.tab === 'badge' && (
-                                <button onClick={handleSaveRowBadge} disabled={rowModal.saving}
+                                <button onClick={handleSaveRowAll} disabled={rowModal.saving}
                                     className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-black bg-white hover:bg-gray-100 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                                    {rowModal.saving ? <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> : <><IonIcon name="checkmark-outline" className="text-base" />Save Badge</>}
+                                    {rowModal.saving ? <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> : <><IonIcon name="checkmark-outline" className="text-base" />{rowModal.selectedPlanId ? "Save Badge & Plan" : "Save Badge"}</>}
                                 </button>
                             )}
                             {rowModal.tab === 'plan' && (
-                                <button onClick={handleSaveRowPlan} disabled={!rowModal.selectedPlanId || rowModal.saving}
+                                <button onClick={handleSaveRowAll} disabled={(!rowModal.selectedPlanId && !rowBadgeChanged()) || rowModal.saving}
                                     className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-black bg-white hover:bg-gray-100 transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
-                                    {rowModal.saving ? <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> : <><IonIcon name="checkmark-outline" className="text-base" />Assign Free</>}
+                                    {rowModal.saving ? <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" /> : <><IonIcon name="checkmark-outline" className="text-base" />{rowModal.selectedPlanId && rowBadgeChanged() ? "Assign Free & Save Badge" : rowModal.selectedPlanId ? "Assign Free" : "Save Badge"}</>}
                                 </button>
                             )}
                         </div>

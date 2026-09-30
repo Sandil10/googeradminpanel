@@ -521,8 +521,32 @@ export default function UploadControlClient() {
     const [rejectReason, setRejectReason] = useState("");
     const [customRejectReason, setCustomRejectReason] = useState("");
     const [previewItem, setPreviewItem] = useState<UploadContentRow | null>(null);
+    const [previewGallerySources, setPreviewGallerySources] = useState<string[]>([]);
     const [cardGalleryIndexById, setCardGalleryIndexById] = useState<Record<string, number>>({});
     const [modalGalleryIndex, setModalGalleryIndex] = useState(0);
+
+    const openContentPreview = async (item: UploadContentRow) => {
+        setModalGalleryIndex(0);
+        const getVaultGallery = (content: UploadContentRow) => {
+            const isVaultImage = String(content.content_type || "").toLowerCase() !== "flash"
+                && String(content.media_type || "").toLowerCase().includes("image");
+            return isVaultImage ? getImageGallerySources(content) : [];
+        };
+        setPreviewGallerySources(getVaultGallery(item));
+        const contentId = String(item.contentId || item.content_id || "").trim();
+        if (!contentId) {
+            setPreviewItem(item);
+            return;
+        }
+        try {
+            const media = await adminService.fetchAdminUploadContentMedia(contentId);
+            const completeItem = { ...item, ...media } as UploadContentRow;
+            setPreviewGallerySources(getVaultGallery(completeItem));
+            setPreviewItem(completeItem);
+        } catch {
+            setPreviewItem(item);
+        }
+    };
 
     useEffect(() => {
         setModalGalleryIndex(0);
@@ -1071,7 +1095,9 @@ export default function UploadControlClient() {
                                 const previewSource = getPreviewSource(item);
                                 const fullMediaSource = getFullMediaSource(item);
                                 const mediaType = String(item.media_type || "").toLowerCase();
-                                const gallerySources = mediaType === "image" ? getImageGallerySources(item) : [];
+                                const isVaultContent = String(item.content_type || "").toLowerCase() !== "flash";
+                                const isImageMedia = mediaType.includes("image");
+                                const gallerySources = isImageMedia ? getImageGallerySources(item) : [];
                                 const hasMultipleGalleryImages = gallerySources.length > 1;
                                 const activeGalleryIndex = hasMultipleGalleryImages
                                     ? Math.min(cardGalleryIndexById[contentId] || 0, gallerySources.length - 1)
@@ -1084,11 +1110,19 @@ export default function UploadControlClient() {
                                     && String(item.content_access_mode || "").toLowerCase() === "blurred"
                                     && !hasThumbnailPreview;
                                 const previewActionTarget = externalLink || previewSource;
-                                const canOpenContentPreview = Boolean(fullMediaSource || previewActionTarget);
-                                const blurredPreviewSource = normalizeAssetUrl(item.thumbnail_url) || (mediaType === "link" ? getExternalPreviewSource(externalLink) : "") || previewSource;
-                                const cardPreviewSource = hasMultipleGalleryImages
+                                const canOpenContentPreview = Boolean(fullMediaSource || previewActionTarget || gallerySources[0]);
+                                const blurredPreviewSource = hasMultipleGalleryImages
                                     ? currentGallerySource
-                                    : hasThumbnailPreview ? normalizeAssetUrl(item.thumbnail_url) : previewSource;
+                                    : normalizeAssetUrl(item.thumbnail_url) || (mediaType === "link" ? getExternalPreviewSource(externalLink) : "") || previewSource;
+                                const cardPreviewSource = isVaultContent && hasThumbnailPreview
+                                    ? normalizeAssetUrl(item.thumbnail_url)
+                                    : hasMultipleGalleryImages
+                                        ? currentGallerySource
+                                        : hasThumbnailPreview ? normalizeAssetUrl(item.thumbnail_url) : previewSource;
+                                const showCardGalleryControls = hasMultipleGalleryImages && !(isVaultContent && hasThumbnailPreview);
+                                const showWatchNowButton = !shouldBlurPreview
+                                    && canOpenContentPreview
+                                    && (isVaultContent || isPlayableVideo);
                                 const reviewNote = item.rejection_reason || item.admin_note || "No rejection note. This content is waiting for review or already approved.";
                                 const visibilityMeta = getVisibilityMeta(item.visibility);
                                 const subscriptionPackages = Array.isArray(item.subscription_packages) ? item.subscription_packages : [];
@@ -1233,7 +1267,9 @@ export default function UploadControlClient() {
                                                         <div
                                                             className={`relative mt-2 flex h-[116px] items-center justify-center overflow-hidden rounded-[0.95rem] border border-white/10 bg-black/40 ${canOpenContentPreview ? "cursor-pointer transition hover:border-white/25" : ""}`}
                                                             onClick={() => {
-                                                                if (canOpenContentPreview) setPreviewItem(item);
+                                                                if (canOpenContentPreview) {
+                                                                    void openContentPreview(item);
+                                                                }
                                                             }}
                                                             role={canOpenContentPreview ? "button" : undefined}
                                                             tabIndex={canOpenContentPreview ? 0 : undefined}
@@ -1241,7 +1277,7 @@ export default function UploadControlClient() {
                                                                 if (!canOpenContentPreview) return;
                                                                 if (event.key === "Enter" || event.key === " ") {
                                                                     event.preventDefault();
-                                                                    setPreviewItem(item);
+                                                                    void openContentPreview(item);
                                                                 }
                                                             }}
                                                         >
@@ -1279,7 +1315,7 @@ export default function UploadControlClient() {
                                                                     </p>
                                                                 </div>
                                                             )}
-                                                            {hasMultipleGalleryImages && (
+                                                            {showCardGalleryControls && (
                                                                 <>
                                                                     <button
                                                                         type="button"
@@ -1312,19 +1348,20 @@ export default function UploadControlClient() {
                                                                 </>
                                                             )}
 
-                                                            {shouldBlurPreview && previewSource && (
-                                                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[linear-gradient(180deg,rgba(0,0,0,0.16),rgba(0,0,0,0.56))] px-3 text-center">
+                                                            {shouldBlurPreview && blurredPreviewSource && (
+                                                                <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center bg-[linear-gradient(180deg,rgba(0,0,0,0.16),rgba(0,0,0,0.56))] px-3 text-center">
                                                                     <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white">
                                                                         <IonIcon name="eye-off-outline" className="text-[18px]" />
                                                                     </div>
                                                                     <p className="mt-2 text-[11px] font-black text-white">Blurred Content</p>
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => {
-                                                                            if (!previewActionTarget) return;
-                                                                            setPreviewItem(item);
+                                                                        onClick={(event) => {
+                                                                            event.stopPropagation();
+                                                                            if (!canOpenContentPreview) return;
+                                                                            void openContentPreview(item);
                                                                         }}
-                                                                        className="mt-3 inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white px-3 text-[8px] font-black uppercase tracking-[0.16em] text-black transition hover:bg-white/90"
+                                                                        className="pointer-events-auto mt-3 inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white px-3 text-[8px] font-black uppercase tracking-[0.16em] text-black transition hover:bg-white/90"
                                                                     >
                                                                         <IonIcon name="eye-outline" className="text-[11px]" />
                                                                         Watch Now
@@ -1336,10 +1373,13 @@ export default function UploadControlClient() {
                                                                     Thumbnail Preview
                                                                 </div>
                                                             )}
-                                                            {!shouldBlurPreview && isPlayableVideo && (
+                                                            {showWatchNowButton && (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => setPreviewItem(item)}
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        void openContentPreview(item);
+                                                                    }}
                                                                     className="absolute bottom-3 left-1/2 z-20 inline-flex h-8 -translate-x-1/2 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-black/65 px-3 text-[8px] font-black uppercase tracking-[0.14em] text-white backdrop-blur-sm"
                                                                 >
                                                                     <IonIcon name="play" className="text-[11px]" /> Watch Now
@@ -1845,9 +1885,24 @@ export default function UploadControlClient() {
             )}
 
             {previewItem && (() => {
+                const previewContentId = String(previewItem.contentId || previewItem.content_id || "");
+                const canonicalPreviewItem = uploadContents.find((content) =>
+                    String(content.contentId || content.content_id || "") === previewContentId
+                );
                 const modalMediaType = String(previewItem.media_type || "").toLowerCase();
                 const modalPreviewSource = getFullMediaSource(previewItem);
-                const modalGallerySources = modalMediaType === "image" ? getImageGallerySources(previewItem) : [];
+                const isModalVaultImage = String(previewItem.content_type || "").toLowerCase() !== "flash"
+                    && modalMediaType.includes("image");
+                const canonicalGallerySources = canonicalPreviewItem
+                    && String(canonicalPreviewItem.content_type || "").toLowerCase() !== "flash"
+                    && String(canonicalPreviewItem.media_type || "").toLowerCase().includes("image")
+                    ? getImageGallerySources(canonicalPreviewItem)
+                    : [];
+                const modalGallerySources = Array.from(new Set([
+                    ...previewGallerySources,
+                    ...canonicalGallerySources,
+                    ...(isModalVaultImage ? getImageGallerySources(previewItem) : []),
+                ].filter(Boolean)));
                 const hasModalGallery = modalGallerySources.length > 1;
                 const safeModalGalleryIndex = hasModalGallery ? Math.min(modalGalleryIndex, modalGallerySources.length - 1) : 0;
                 const modalExternalLink = normalizeExternalUrl(previewItem.external_link);
@@ -1856,18 +1911,21 @@ export default function UploadControlClient() {
                     : modalMediaType === "link" ? modalExternalLink : (hasModalGallery ? modalGallerySources[safeModalGalleryIndex] : modalPreviewSource);
                 const modalEmbedSource = getVideoEmbedUrl(modalSource);
                 return (
-                    <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/85 px-4 py-6 backdrop-blur-md" onClick={() => setPreviewItem(null)}>
-                        <div className="w-full max-w-3xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#101114] shadow-[0_30px_100px_rgba(0,0,0,0.65)]" onClick={(event) => event.stopPropagation()}>
-                            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+                    <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/85 px-4 py-6 backdrop-blur-md" onClick={() => { setPreviewItem(null); setPreviewGallerySources([]); }}>
+                        <div className="flex h-[min(74vh,680px)] w-[min(88vw,820px)] flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#101114] shadow-[0_30px_100px_rgba(0,0,0,0.65)]" onClick={(event) => event.stopPropagation()}>
+                            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
                                 <div className="min-w-0">
                                     <h3 className="truncate text-[15px] font-black text-white">Content Preview</h3>
                                     <p className="mt-1 truncate text-[10px] font-semibold text-white/45">{previewItem.topic || "Vault Content"} · {previewItem.contentId || previewItem.content_id}</p>
                                 </div>
-                                <button type="button" onClick={() => setPreviewItem(null)} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/65 transition hover:bg-white/[0.1] hover:text-white">
+                                <button type="button" onClick={() => { setPreviewItem(null); setPreviewGallerySources([]); }} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/65 transition hover:bg-white/[0.1] hover:text-white">
                                     <IonIcon name="close-outline" className="text-lg" />
                                 </button>
                             </div>
-                            <div className="flex min-h-[320px] max-h-[72vh] items-center justify-center bg-black p-3 sm:p-5">
+                            <div
+                                className="relative min-h-0 flex-1 overflow-hidden bg-black p-3 sm:p-4"
+                                style={{ display: "grid", placeItems: "center" }}
+                            >
                                 {!modalSource ? (
                                     <div className="text-center text-sm font-semibold text-white/45">No preview is available for this content.</div>
                                 ) : isVideoUrl(modalSource) ? (
@@ -1888,7 +1946,7 @@ export default function UploadControlClient() {
                                         onLoadedMetadata={(event) => seekToTrimStart(event.currentTarget, previewItem)}
                                         onPlay={(event) => seekToTrimStart(event.currentTarget, previewItem)}
                                         onTimeUpdate={(event) => stopAtTrimEnd(event.currentTarget, previewItem)}
-                                        className="max-h-[65vh] w-full rounded-xl object-contain"
+                                        className="max-h-[50vh] max-w-[680px] rounded-xl object-contain"
                                     />
                                 ) : modalEmbedSource ? (
                                     <iframe
@@ -1896,17 +1954,26 @@ export default function UploadControlClient() {
                                         title="Linked video content"
                                         allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                         allowFullScreen
-                                        className="aspect-video max-h-[65vh] w-full rounded-xl border-0 bg-black"
+                                        className="aspect-video max-h-[50vh] w-full max-w-[680px] rounded-xl border-0 bg-black"
                                     />
                                 ) : (
-                                    <div className="relative w-full">
-                                        <img src={modalSource} alt="Uploaded content preview" className="max-h-[65vh] w-full rounded-xl object-contain" />
+                                    <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden p-3 sm:p-4">
+                                        <img
+                                            src={modalSource}
+                                            alt="Uploaded content preview"
+                                            className="block rounded-xl object-contain object-center"
+                                            style={{
+                                                maxHeight: "min(50vh, 100%)",
+                                                maxWidth: "min(680px, 100%)",
+                                                margin: "auto",
+                                            }}
+                                        />
                                         {hasModalGallery && (
                                             <>
                                                 <button
                                                     type="button"
                                                     onClick={() => setModalGalleryIndex((current) => current === 0 ? modalGallerySources.length - 1 : current - 1)}
-                                                    className="absolute left-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/60 text-white backdrop-blur-sm"
+                                                    className="absolute left-2 top-1/2 z-30 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/25 bg-black/75 text-white shadow-xl backdrop-blur-sm transition hover:bg-black/90"
                                                     aria-label="Previous image"
                                                 >
                                                     <IonIcon name="chevron-back-outline" className="text-base" />
@@ -1914,16 +1981,67 @@ export default function UploadControlClient() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setModalGalleryIndex((current) => current === modalGallerySources.length - 1 ? 0 : current + 1)}
-                                                    className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/60 text-white backdrop-blur-sm"
+                                                    className="absolute right-2 top-1/2 z-30 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/25 bg-black/75 text-white shadow-xl backdrop-blur-sm transition hover:bg-black/90"
                                                     aria-label="Next image"
                                                 >
                                                     <IonIcon name="chevron-forward-outline" className="text-base" />
                                                 </button>
                                             </>
                                         )}
+                                        {hasModalGallery && (
+                                            <div className="absolute inset-x-0 bottom-2 z-30 flex justify-center gap-1.5 px-12">
+                                                {modalGallerySources.map((source, index) => (
+                                                    <button
+                                                        key={`${source}-${index}`}
+                                                        type="button"
+                                                        onClick={() => setModalGalleryIndex(index)}
+                                                        className={`h-8 w-8 overflow-hidden rounded-md border bg-black/70 transition ${index === safeModalGalleryIndex ? "border-white" : "border-white/20 opacity-70 hover:opacity-100"}`}
+                                                        aria-label={`Show image ${index + 1}`}
+                                                    >
+                                                        <img src={source} alt="" className="h-full w-full object-cover" />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
+                            {hasModalGallery && (
+                                <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-[#101114] px-3 py-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setModalGalleryIndex((current) => current === 0 ? modalGallerySources.length - 1 : current - 1)}
+                                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/[0.06] text-white transition hover:bg-white/[0.12]"
+                                        aria-label="Previous image"
+                                    >
+                                        <IonIcon name="chevron-back-outline" className="text-lg" />
+                                    </button>
+                                    <div className="flex min-w-0 flex-1 items-center justify-center gap-2 overflow-x-auto">
+                                        {modalGallerySources.map((source, index) => (
+                                            <button
+                                                key={`footer-${source}-${index}`}
+                                                type="button"
+                                                onClick={() => setModalGalleryIndex(index)}
+                                                className={`h-9 w-9 flex-shrink-0 overflow-hidden rounded-md border bg-black transition ${index === safeModalGalleryIndex ? "border-white" : "border-white/20 opacity-65 hover:opacity-100"}`}
+                                                aria-label={`Show image ${index + 1}`}
+                                            >
+                                                <img src={source} alt="" className="h-full w-full object-cover" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex flex-shrink-0 items-center gap-3">
+                                        <span className="min-w-10 text-center text-[11px] font-bold text-white/60">{safeModalGalleryIndex + 1} / {modalGallerySources.length}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setModalGalleryIndex((current) => current === modalGallerySources.length - 1 ? 0 : current + 1)}
+                                            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/[0.06] text-white transition hover:bg-white/[0.12]"
+                                            aria-label="Next image"
+                                        >
+                                            <IonIcon name="chevron-forward-outline" className="text-lg" />
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 );

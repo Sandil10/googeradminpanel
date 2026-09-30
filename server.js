@@ -92,6 +92,10 @@ app.use((req, res, next) => {
     res.setHeader('Referrer-Policy', 'same-origin');
     next();
 });
+// Chat features (limits + custom stickers/emojis) live in the main backend,
+// which owns media storage. Forwarded before body parsing so image uploads
+// stream through untouched; the main backend checks the admin token.
+app.use('/api/chat-features', ...require('./routes/chat-features'));
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || '1mb' }));
 app.use('/api', generalApiLimiter);

@@ -439,6 +439,182 @@ function normalizeUrl(value?: string) {
     return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
+// A "link" ad (media_type "link") uploads no file at all — its media_preview
+// column is empty, so without this the table showed a bare placeholder icon
+// for every link ad no matter what it actually links to. Mirrors the web
+// dashboard's getSponsoredLinkPreviewImage so the same ad shows the same
+// thumbnail in both places.
+function getYouTubeThumbnail(url: string): string {
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+        let videoId = "";
+        if (host === "youtu.be") {
+            videoId = parsed.pathname.split("/").filter(Boolean)[0] || "";
+        } else if (host.includes("youtube.com")) {
+            if (parsed.pathname.startsWith("/shorts/") || parsed.pathname.startsWith("/embed/")) {
+                videoId = parsed.pathname.split("/").filter(Boolean)[1] || "";
+            } else {
+                videoId = parsed.searchParams.get("v") || "";
+            }
+        }
+        return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : "";
+    } catch {
+        return "";
+    }
+}
+
+function getLinkPreviewImage(rawUrl?: string): string {
+    const url = normalizeUrl(rawUrl);
+    if (!url) return "";
+    if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(url)) return url;
+    const youtube = getYouTubeThumbnail(url);
+    if (youtube) return youtube;
+    return `https://api.microlink.io?url=${encodeURIComponent(url)}&screenshot=true&meta=false&embed=screenshot.url`;
+}
+
+// A link ad's thumbnail is just a still frame — clicking it used to open the
+// same still image again in a bigger box, never the actual video, even
+// though every other Googer surface (feed, campaign editor) plays these
+// links inline. Mirrors web's getSponsoredSocialEmbedUrl / mobile's
+// adLinkEmbedUrl so admin can actually play what the ad links to.
+function getEmbedUrl(rawUrl?: string): string {
+    const url = normalizeUrl(rawUrl);
+    if (!url) return "";
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+        const parts = parsed.pathname.split("/").filter(Boolean);
+
+        if (host === "youtu.be" || host.includes("youtube.com")) {
+            let videoId = "";
+            if (host === "youtu.be") {
+                videoId = parts[0] || "";
+            } else if (parsed.pathname.startsWith("/shorts/") || parsed.pathname.startsWith("/embed/")) {
+                videoId = parts[1] || "";
+            } else {
+                videoId = parsed.searchParams.get("v") || "";
+            }
+            return videoId ? `https://www.youtube.com/embed/${videoId}` : "";
+        }
+
+        if (host.includes("instagram.com")) {
+            if (parts.length >= 2 && ["p", "reel", "tv"].includes(parts[0])) {
+                return `https://www.instagram.com/${parts[0]}/${parts[1]}/embed`;
+            }
+            return "";
+        }
+
+        if (host.includes("tiktok.com")) {
+            const videoIndex = parts.indexOf("video");
+            return videoIndex >= 0 && parts[videoIndex + 1] ? `https://www.tiktok.com/embed/v2/${parts[videoIndex + 1]}` : "";
+        }
+
+        if (host.includes("facebook.com") || host.includes("fb.watch")) {
+            const isVideoUrl = /\/videos\/|\/watch\/|\?v=|fb\.watch/i.test(url);
+            const plugin = isVideoUrl ? "video.php" : "post.php";
+            return `https://www.facebook.com/plugins/${plugin}?href=${encodeURIComponent(url)}&show_text=false&width=560`;
+        }
+    } catch {
+        return "";
+    }
+    return "";
+}
+
+// A link ad's derived thumbnail is always a still image (even for a YouTube
+// link, it is a .jpg), never something a <video> tag can play — only an
+// actually uploaded video file counts as "video" for rendering purposes.
+function getAdPreviewImage(ad: AdHistoryRow): string {
+    if (ad.mediaPreview) return ad.mediaPreview;
+    const draft = ad.editDraft as { activeLink?: string } | undefined;
+    return getLinkPreviewImage(draft?.activeLink);
+}
+
+// TikTok publishes its own public oEmbed thumbnail — no API key, no
+// meaningful rate limit — unlike the generic microlink screenshot fallback
+// every other non-YouTube link relies on, which is a shared, unauthenticated
+// free-tier endpoint (25 requests before it starts refusing more) that can
+// simply run out of quota and come back as a broken image. Preferring this
+// for TikTok links makes that one platform's preview reliable instead of
+// only "usually works".
+function useAdPreviewImage(ad: AdHistoryRow): string {
+    const fallback = getAdPreviewImage(ad);
+    const draft = ad.editDraft as { activeLink?: string } | undefined;
+    const activeLink = ad.mediaPreview ? undefined : draft?.activeLink;
+    const isTikTok = (() => {
+        if (!activeLink) return false;
+        try {
+            const host = new URL(normalizeUrl(activeLink)).hostname.replace(/^www\./i, "").toLowerCase();
+            return host === "tiktok.com";
+        } catch {
+            return false;
+        }
+    })();
+    const [thumb, setThumb] = useState<string | null>(null);
+    useEffect(() => {
+        setThumb(null);
+        if (!isTikTok || !activeLink) return;
+        let cancelled = false;
+        fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(activeLink)}`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                if (!cancelled && data?.thumbnail_url) setThumb(data.thumbnail_url);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [isTikTok, activeLink]);
+    return isTikTok && thumb ? thumb : fallback;
+}
+
+// `useAdPreviewImage` is a hook, so it needs its own component to call it
+// from — inlining it inside the IIFEs these two call sites used to have
+// would call a hook conditionally / out of a component's top level, which
+// breaks React's rule that hooks must run in the same order every render.
+function AdPreviewThumbnail({
+    ad,
+    title,
+    onOpen,
+    sizeClassName,
+    overlayIconClassName,
+}: {
+    ad: AdHistoryRow;
+    title: string;
+    onOpen: (src: string, type: "video" | "image" | "embed") => void;
+    sizeClassName: string;
+    overlayIconClassName: string;
+}) {
+    const previewSrc = useAdPreviewImage(ad);
+    const isRealVideo = ad.mediaType === "video" && !!ad.mediaPreview;
+    const draft = ad.editDraft as { activeLink?: string } | undefined;
+    // Only a link ad (no uploaded file at all) opens as a live embed — an ad
+    // with an actual uploaded video/image plays/shows that file itself.
+    const embedUrl = !ad.mediaPreview ? getEmbedUrl(draft?.activeLink) : "";
+    const openType: "video" | "image" | "embed" = isRealVideo ? "video" : embedUrl ? "embed" : "image";
+    return (
+        <div
+            className={`relative shrink-0 overflow-hidden bg-black/25 group ${sizeClassName} ${previewSrc ? "cursor-pointer" : ""}`}
+            onClick={() => previewSrc && onOpen(openType === "embed" ? embedUrl : previewSrc, openType)}
+        >
+            {isRealVideo ? (
+                <video src={previewSrc} className="h-full w-full object-cover" muted playsInline />
+            ) : previewSrc ? (
+                <img src={previewSrc} alt={title} className="h-full w-full object-cover" />
+            ) : (
+                <div className="flex h-full w-full items-center justify-center text-white/30">
+                    <IonIcon name={ad.mediaType === "video" ? "videocam-outline" : "image-outline"} className="text-3xl" />
+                </div>
+            )}
+            {previewSrc && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <IonIcon name={openType === "image" ? "expand-outline" : "play-circle-outline"} className={overlayIconClassName} />
+                </div>
+            )}
+        </div>
+    );
+}
+
 function getCtaConfig(ad: AdHistoryRow) {
     const draft = ad.editDraft as {
         ctaTopic?: string;
@@ -506,7 +682,7 @@ export default function AdsTable() {
     const [coinMessage, setCoinMessage] = useState<string | null>(null);
     const [coinLoading, setCoinLoading] = useState(false);
     const [nowTick, setNowTick] = useState(() => Date.now());
-    const [mediaModal, setMediaModal] = useState<{ src: string; type: "image" | "video"; title: string } | null>(null);
+    const [mediaModal, setMediaModal] = useState<{ src: string; type: "image" | "video" | "embed"; title: string } | null>(null);
     const [approvalDurationDays, setApprovalDurationDays] = useState<number | null>(null);
     const [displayRotation, setDisplayRotation] = useState(0);
 
@@ -920,25 +1096,13 @@ export default function AdsTable() {
                                 <div className="px-3 py-3 sm:px-4 md:px-5">
                                     <div className="grid gap-2 rounded-[1.35rem] border border-white/6 bg-[#121212] p-2.5">
                                         <div className="flex min-w-0 flex-row items-center gap-3">
-                                            <div
-                                                className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-[1rem] bg-black/25 group ${ad.mediaPreview ? "cursor-pointer" : ""}`}
-                                                onClick={() => ad.mediaPreview && setMediaModal({ src: ad.mediaPreview, type: ad.mediaType === "video" ? "video" : "image", title: getTitle(ad) })}
-                                            >
-                                                {ad.mediaType === "video" && ad.mediaPreview ? (
-                                                    <video src={ad.mediaPreview} className="h-full w-full object-cover" muted playsInline />
-                                                ) : ad.mediaPreview ? (
-                                                    <img src={ad.mediaPreview} alt={getTitle(ad)} className="h-full w-full object-cover" />
-                                                ) : (
-                                                    <div className="flex h-full w-full items-center justify-center text-white/30">
-                                                        <IonIcon name={ad.mediaType === "video" ? "videocam-outline" : "image-outline"} className="text-3xl" />
-                                                    </div>
-                                                )}
-                                                {ad.mediaPreview && (
-                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <IonIcon name={ad.mediaType === "video" ? "play-circle-outline" : "expand-outline"} className="text-2xl text-white" />
-                                                    </div>
-                                                )}
-                                            </div>
+                                            <AdPreviewThumbnail
+                                                ad={ad}
+                                                title={getTitle(ad)}
+                                                sizeClassName="h-16 w-16 rounded-[1rem]"
+                                                overlayIconClassName="text-2xl text-white"
+                                                onOpen={(src, type) => setMediaModal({ src, type, title: getTitle(ad) })}
+                                            />
 
                                             <div className="min-w-0">
                                                 <div className="flex flex-wrap items-center gap-2">
@@ -1131,25 +1295,13 @@ export default function AdsTable() {
                                 <p className="text-[10px] font-black uppercase tracking-[0.12em] text-white/28">Purchased Ad</p>
                                     <div className="mt-3 rounded-[1.35rem] border border-white/8 bg-white/[0.04] p-3">
                                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                        <div
-                                            className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-[0.9rem] bg-black/25 sm:h-16 sm:w-16 group ${selectedAd.mediaPreview ? "cursor-pointer" : ""}`}
-                                            onClick={() => selectedAd.mediaPreview && setMediaModal({ src: selectedAd.mediaPreview, type: selectedAd.mediaType === "video" ? "video" : "image", title: getTitle(selectedAd) })}
-                                        >
-                                            {selectedAd.mediaType === "video" && selectedAd.mediaPreview ? (
-                                                <video src={selectedAd.mediaPreview} className="h-full w-full object-cover" muted playsInline />
-                                            ) : selectedAd.mediaPreview ? (
-                                                <img src={selectedAd.mediaPreview} alt={getTitle(selectedAd)} className="h-full w-full object-cover" />
-                                            ) : (
-                                                <div className="flex h-full w-full items-center justify-center text-white/30">
-                                                    <IonIcon name={selectedAd.mediaType === "video" ? "videocam-outline" : "image-outline"} className="text-3xl" />
-                                                </div>
-                                            )}
-                                            {selectedAd.mediaPreview && (
-                                                <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <IonIcon name={selectedAd.mediaType === "video" ? "play-circle-outline" : "expand-outline"} className="text-xl text-white" />
-                                                </div>
-                                            )}
-                                        </div>
+                                        <AdPreviewThumbnail
+                                            ad={selectedAd}
+                                            title={getTitle(selectedAd)}
+                                            sizeClassName="h-14 w-14 rounded-[0.9rem] sm:h-16 sm:w-16"
+                                            overlayIconClassName="text-xl text-white"
+                                            onOpen={(src, type) => setMediaModal({ src, type, title: getTitle(selectedAd) })}
+                                        />
                                         <div className="min-w-0">
                                             <p className="truncate text-[12px] font-black uppercase text-white">{getTitle(selectedAd)}</p>
                                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1397,7 +1549,14 @@ export default function AdsTable() {
                     </button>
                     <div className="w-full max-w-4xl" onClick={e => e.stopPropagation()}>
                         <p className="mb-3 text-center text-[10px] font-black uppercase tracking-widest text-white/35">{mediaModal.title}</p>
-                        {mediaModal.type === "video" ? (
+                        {mediaModal.type === "embed" ? (
+                            <iframe
+                                src={mediaModal.src}
+                                allow="autoplay; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+                                allowFullScreen
+                                className="aspect-video w-full rounded-[1.5rem] border-0 bg-black shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+                            />
+                        ) : mediaModal.type === "video" ? (
                             // eslint-disable-next-line jsx-a11y/media-has-caption
                             <video
                                 src={mediaModal.src}

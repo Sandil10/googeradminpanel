@@ -7,7 +7,7 @@ import { adminService } from "@/services/adminService";
 import { COLOR_OPTIONS, resolveColor, getSavedColors, saveCustomColor, removeCustomColor, isCustomHex, type Plan } from "./planUtils";
 
 type AutoDeleteUnit = 'off' | 'minutes' | 'hours' | 'days' | 'lifetime';
-type ContentExpiryUnit = 'minutes' | 'days' | 'months' | 'unlimited';
+type ContentExpiryUnit = 'minutes' | 'hours' | 'days' | 'months' | 'unlimited';
 
 type FormData = {
     slug: string;
@@ -24,6 +24,8 @@ type FormData = {
 };
 
 type Limits = {
+    goog_posting_daily_limit: string;
+    goog_posting_total_limit: string;
     write_goog_limit: string;
     goog_letter_limit: string;
     product_upload_limit: string;
@@ -52,12 +54,14 @@ type Limits = {
     chat_video_calls: boolean;
 };
 
-type LimitKey = 'write_goog_limit' | 'goog_letter_limit' | 'product_upload_limit' | 'ad_videos' | 'ad_photos' | 'chat_save';
+type LimitKey = 'goog_posting_daily_limit' | 'goog_posting_total_limit' | 'write_goog_limit' | 'goog_letter_limit' | 'product_upload_limit' | 'ad_videos' | 'ad_photos' | 'chat_save';
 type ContentUploadLabelKey = 'content_upload_limit' | 'content_daily_upload_limit' | 'content_video_limit_minutes' | 'content_expiry';
 
 type Labels = Record<LimitKey | 'free_promo_code' | ContentUploadLabelKey, string>;
 
 const DEFAULT_LABELS: Labels = {
+    goog_posting_daily_limit: 'Googer Posting Daily',
+    goog_posting_total_limit: 'Googer Posting Total',
     write_goog_limit:     'Write Goog',
     goog_letter_limit:    'Write goog',
     product_upload_limit: '🔻 Product Upload Limit',
@@ -73,6 +77,8 @@ const DEFAULT_LABELS: Labels = {
 
 // Format templates — label is the editable part (may include emoji), num is the value
 const FORMAT: Record<LimitKey, (label: string, num: string) => string> = {
+    goog_posting_daily_limit: (l, n) => `${l} - ${n}/day`,
+    goog_posting_total_limit: (l, n) => `${l} - ${n} total`,
     write_goog_limit:     (l, n) => `${l} – ${n} limit`,
     goog_letter_limit:    (l, n) => `${l} (${n} letters)`,
     product_upload_limit: (l, n) => `${l} – ${n}`,
@@ -101,6 +107,7 @@ function buildFeatures(limits: Limits, labels: Labels, verified_tick: boolean): 
     const f: string[] = [];
     if (verified_tick) f.push('Verification tick');
     (Object.keys(FORMAT) as LimitKey[]).forEach(key => {
+        if (key === 'goog_posting_daily_limit' || key === 'goog_posting_total_limit') return;
         if (toInt(limits[key] as string) > 0)
             f.push(FORMAT[key](labels[key] || DEFAULT_LABELS[key], limits[key] as string));
     });
@@ -156,6 +163,8 @@ function planToLimits(plan: Plan): Limits {
     const e = plan.extra || {};
     const autoDelete = resolveLegacyAutoDelete(e, plan.is_default);
     return {
+        goog_posting_daily_limit: String(e.goog_posting_daily_limit ?? e.write_goog_daily_limit ?? 0),
+        goog_posting_total_limit: String(e.goog_posting_total_limit ?? plan.googs_limit ?? e.goog_posting_limit ?? e.write_goog_limit ?? (plan.is_default ? 5 : 0)),
         write_goog_limit:     String(e.write_goog_limit     ?? (plan.is_default ? 5  : 0)),
         goog_letter_limit:    String(e.goog_letter_limit    ?? (plan.is_default ? 75 : 0)),
         product_upload_limit: String(e.product_upload_limit ?? (plan.is_default ? 15 : 0)),
@@ -187,7 +196,9 @@ function planToLimits(plan: Plan): Limits {
 function planToLabels(plan: Plan): Labels {
     const saved = plan.extra?.labels || {};
     return {
-        write_goog_limit:     saved.write_goog_limit     || DEFAULT_LABELS.write_goog_limit,
+        goog_posting_daily_limit: saved.goog_posting_daily_limit || DEFAULT_LABELS.goog_posting_daily_limit,
+        goog_posting_total_limit: saved.goog_posting_total_limit || DEFAULT_LABELS.goog_posting_total_limit,
+        write_goog_limit:     saved.write_goog_limit     || (plan.is_default ? DEFAULT_LABELS.write_goog_limit : 'Write Goog (color)'),
         goog_letter_limit:    saved.goog_letter_limit    || DEFAULT_LABELS.goog_letter_limit,
         product_upload_limit: saved.product_upload_limit || DEFAULT_LABELS.product_upload_limit,
         ad_videos:            saved.ad_videos            || DEFAULT_LABELS.ad_videos,
@@ -208,6 +219,8 @@ const blankForm = (): FormData => ({
 });
 
 const blankLimits = (): Limits => ({
+    goog_posting_daily_limit: '0',
+    goog_posting_total_limit: '0',
     write_goog_limit: '0', goog_letter_limit: '0', product_upload_limit: '0',
     content_upload_limit: '15', content_daily_upload_limit: '3', content_video_limit_minutes: '5',
     content_expiry_value: '1', content_expiry_unit: 'unlimited',
@@ -364,7 +377,11 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
             const extra = {
                 ...(initialPlan?.extra || {}),
                 badge_tick_color: form.badge_tick_color || '',
-                write_goog_limit:     toInt(limits.write_goog_limit),
+                goog_posting_daily_limit: toInt(limits.goog_posting_daily_limit),
+                goog_posting_total_limit: toInt(limits.goog_posting_total_limit),
+                goog_posting_limit:  toInt(limits.goog_posting_total_limit),
+                write_goog_limit:     isDefault ? toInt(limits.goog_posting_total_limit) : toInt(limits.write_goog_limit),
+                write_goog_color_limit: isDefault ? 0 : toInt(limits.write_goog_limit),
                 goog_letter_limit:    toInt(limits.goog_letter_limit),
                 product_upload_limit: toInt(limits.product_upload_limit),
                 content_upload_limit: toInt(limits.content_upload_limit),
@@ -405,7 +422,7 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
             ];
 
             const payload: any = isDefault
-                ? { googs_limit: toInt(limits.write_goog_limit), extra, features }
+                ? { googs_limit: toInt(limits.goog_posting_total_limit), extra, features }
                 : {
                     slug:         form.slug.trim(),
                     name:         form.name.trim(),
@@ -413,7 +430,7 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
                     duration_days: form.is_lifetime_plan ? 0 : toInt(form.duration_days),
                     badge_color:  form.badge_color,
                     accent_color: form.accent_color,
-                    googs_limit:  toInt(limits.write_goog_limit),
+                    googs_limit:  toInt(limits.goog_posting_total_limit),
                     verified_tick:form.verified_tick,
                     features,
                     extra,
@@ -766,18 +783,21 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
 
                     {/* Assigned fields — shown as name : number rows */}
                     {(() => {
-                        const numFields: { key: LimitKey; icon: string; basic?: boolean }[] = [
-                            { key: 'write_goog_limit',     icon: 'create-outline',    basic: true },
+                        const numFields: { key: LimitKey; icon: string; basic?: boolean; paid?: boolean }[] = [
+                            { key: 'goog_posting_daily_limit', icon: 'calendar-outline', basic: true, paid: true },
+                            { key: 'goog_posting_total_limit', icon: 'albums-outline',   basic: true, paid: true },
+                            { key: 'write_goog_limit',     icon: 'create-outline',    paid: true },
                             { key: 'goog_letter_limit',    icon: 'text-outline',      basic: true },
                             { key: 'product_upload_limit', icon: 'cube-outline',      basic: true },
                             { key: 'ad_videos',            icon: 'videocam-outline' },
                             { key: 'ad_photos',            icon: 'image-outline' },
                             { key: 'chat_save',            icon: 'chatbubble-outline' },
                         ];
-                        const visible    = numFields.filter(f => isDefault ? f.basic : true);
+                        const postingKeys = new Set<LimitKey>(['goog_posting_daily_limit', 'goog_posting_total_limit']);
+                        const visible    = numFields.filter(f => isDefault ? f.basic : f.paid !== false);
                         // For basic plan always show all fields; for paid plans split by value
-                        const assigned   = visible.filter(f => isDefault || toInt(limits[f.key]) > 0);
-                        const unassigned = visible.filter(f => !isDefault && toInt(limits[f.key]) === 0);
+                        const assigned   = visible.filter(f => isDefault || postingKeys.has(f.key) || toInt(limits[f.key]) > 0);
+                        const unassigned = visible.filter(f => !isDefault && !postingKeys.has(f.key) && toInt(limits[f.key]) === 0);
 
                         return (
                             <div className="space-y-4">
@@ -804,12 +824,59 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
                                                         className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'text-green-400 hover:bg-green-400/10' : 'text-gray-500 hover:text-white hover:bg-white/10'}`}>
                                                         <IonIcon name={isEditing ? 'checkmark-outline' : 'pencil-outline'} className="text-base" />
                                                     </button>
-                                                    <input
-                                                        type="number" min="0"
-                                                        value={limits[f.key]}
-                                                        onChange={e => setL(f.key, e.target.value)}
-                                                        className="w-20 bg-[#0a0a0a] border border-[#2a2a2a] text-white text-center rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-white/30 shrink-0"
-                                                    />
+                                                    {postingKeys.has(f.key) ? (
+                                                        <>
+                                                            {(() => {
+                                                                const isDaily = f.key === 'goog_posting_daily_limit';
+                                                                const finiteLabel = isDaily ? 'Daily' : 'Total';
+                                                                const suffix = isDaily ? '/day' : 'total';
+                                                                return (
+                                                                    <>
+                                                            <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-1 shrink-0">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setL(f.key, limits[f.key] === '0' ? '1' : limits[f.key])}
+                                                                    className={`px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${toInt(limits[f.key]) > 0 ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}
+                                                                >
+                                                                    {finiteLabel}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setL(f.key, '0')}
+                                                                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${toInt(limits[f.key]) === 0 ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}
+                                                                >
+                                                                    <IonIcon name="infinite-outline" className="text-sm" />
+                                                                    Unlimited
+                                                                </button>
+                                                            </div>
+                                                            {toInt(limits[f.key]) > 0 ? (
+                                                                <>
+                                                                    <input
+                                                                        type="number" min="1"
+                                                                        value={limits[f.key]}
+                                                                        onChange={e => setL(f.key, e.target.value)}
+                                                                        className="w-20 bg-[#0a0a0a] border border-[#2a2a2a] text-white text-center rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-white/30 shrink-0"
+                                                                    />
+                                                                    <span className="text-[10px] font-bold text-gray-500 shrink-0">{suffix}</span>
+                                                                </>
+                                                            ) : (
+                                                                <span className="flex items-center gap-1 text-[10px] font-bold text-gray-500 shrink-0">
+                                                                    <IonIcon name="infinite-outline" className="text-sm" />
+                                                                    Unlimited {suffix}
+                                                                </span>
+                                                            )}
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </>
+                                                    ) : (
+                                                        <input
+                                                            type="number" min="0"
+                                                            value={limits[f.key]}
+                                                            onChange={e => setL(f.key, e.target.value)}
+                                                            className="w-20 bg-[#0a0a0a] border border-[#2a2a2a] text-white text-center rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-white/30 shrink-0"
+                                                        />
+                                                    )}
                                                     {!isDefault && (
                                                         <button type="button" onClick={() => { setL(f.key, '0'); setEditingFields(s => { const n = new Set(s); n.delete(f.key); return n; }); }}
                                                             className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors shrink-0">
@@ -1091,6 +1158,7 @@ export default function PlanForm({ initialPlan }: { initialPlan?: Plan }) {
                                         className="bg-[#111] border border-[#2a2a2a] text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-white/30"
                                     >
                                         <option value="minutes">Minutes</option>
+                                        <option value="hours">Hours</option>
                                         <option value="days">Days</option>
                                         <option value="months">Months</option>
                                         <option value="unlimited">Lifetime</option>

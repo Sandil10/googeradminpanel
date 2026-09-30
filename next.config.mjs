@@ -42,6 +42,26 @@ const nextConfig = {
             },
         ];
     },
+    async headers() {
+        const noStoreHeaders = [
+            {
+                key: 'Cache-Control',
+                value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            },
+            { key: 'Pragma', value: 'no-cache' },
+            { key: 'Expires', value: '0' },
+        ];
+        return [
+            {
+                source: '/:path*',
+                headers: noStoreHeaders,
+            },
+            {
+                source: '/_next/static/:path*',
+                headers: noStoreHeaders,
+            },
+        ];
+    },
     webpack(config, { dev }) {
         // The admin build can run on storage-constrained recovery machines where
         // webpack's filesystem cache fails with ENOSPC. Keep the cache for local

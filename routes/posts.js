@@ -15,18 +15,24 @@ router.post('/test-link', async (req, res) => {
 });
 
 // Admin list: newest posts first with user details
+let adminFeedColumnsEnsured = false;
 router.get('/admin-feed', async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const { limit = 100, offset = 0, search = '' } = req.query;
         const normalizedSearch = String(search || '').trim();
 
-        // Ensure columns exist
-        await pool.query(`ALTER TABLE goog_posts ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`).catch(() => {});
-        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deactivated BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
-        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS self_deactivated_at TIMESTAMP DEFAULT NULL`).catch(() => {});
-        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_wallet_access BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
-        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason_category VARCHAR(120) DEFAULT NULL`).catch(() => {});
-        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS appeal_status VARCHAR(30) DEFAULT NULL`).catch(() => {});
+        // Ensure columns exist — once per process. Running these ALTERs on
+        // every poll took table locks each time, which slowed the live feed.
+        if (!adminFeedColumnsEnsured) {
+            await pool.query(`ALTER TABLE goog_posts ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`).catch(() => {});
+            await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deactivated BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
+            await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS self_deactivated_at TIMESTAMP DEFAULT NULL`).catch(() => {});
+            await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_wallet_access BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
+            await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason_category VARCHAR(120) DEFAULT NULL`).catch(() => {});
+            await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS appeal_status VARCHAR(30) DEFAULT NULL`).catch(() => {});
+            adminFeedColumnsEnsured = true;
+        }
 
         const result = await pool.query(
             `SELECT

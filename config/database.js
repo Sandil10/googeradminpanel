@@ -1,5 +1,6 @@
 const { Pool, types } = require('pg');
 const { parseIntoClientConfig } = require('pg-connection-string');
+const fs = require('fs');
 require('dotenv').config();
 
 // Return timestamps as raw UTC strings so we handle timezone conversion
@@ -62,6 +63,10 @@ if (connectionString) {
     } else {
         console.warn('Warning: No Database Configuration Found in .env (Add DATABASE_URL for Supabase)');
     }
+}
+
+if (dbConfig.ssl && process.env.DB_SSL_CA_FILE) {
+    dbConfig.ssl.ca = fs.readFileSync(process.env.DB_SSL_CA_FILE, 'utf8');
 }
 
 const poolMax = Number.parseInt(String(process.env.DB_POOL_MAX || process.env.PGPOOL_MAX || '15'), 10);

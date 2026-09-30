@@ -494,6 +494,53 @@ exports.getUploadContentsAdmin = async (req, res) => {
     }
 };
 
+exports.getUploadContentMediaAdmin = async (req, res) => {
+    try {
+        const contentId = String(req.params.contentId || '').trim();
+        if (!contentId) {
+            return res.status(400).json({ success: false, message: 'Content ID is required' });
+        }
+
+        const { rows } = await pool.query(`
+            SELECT content_id, content_type, media_type, media_preview, media_gallery,
+                   thumbnail_url, external_link, preview_url
+            FROM upload_contents
+            WHERE content_id = $1
+            LIMIT 1
+        `, [contentId]);
+
+        if (!rows.length) {
+            return res.status(404).json({ success: false, message: 'Upload content not found' });
+        }
+
+        const row = rows[0];
+        const parsedGallery = Array.isArray(row.media_gallery)
+            ? row.media_gallery
+            : parseJsonField(row.media_gallery, []);
+        const mediaGallery = Array.isArray(parsedGallery)
+            ? parsedGallery.map((value) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+        return res.json({
+            success: true,
+            media: {
+                contentId: row.content_id,
+                content_id: row.content_id,
+                content_type: row.content_type === 'flash' ? 'flash' : 'vault',
+                media_type: row.media_type || '',
+                media_preview: row.media_preview || '',
+                media_gallery: mediaGallery,
+                thumbnail_url: row.thumbnail_url || '',
+                external_link: row.external_link || '',
+                preview_url: row.preview_url || '',
+            },
+        });
+    } catch (error) {
+        console.error('[uploadControl] getUploadContentMediaAdmin error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to fetch upload content media' });
+    }
+};
+
 exports.updateUploadContentStatusAdmin = async (req, res) => {
     try {
         const contentId = String(req.params.contentId || '').trim();
